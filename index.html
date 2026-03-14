@@ -1,0 +1,1891 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAE — Sistema Apollo Enterprise</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+/* ===== RESET & BASE ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg-base: #0f172a;
+  --bg-surface: rgba(15, 23, 42, 0.8);
+  --bg-card: rgba(30, 41, 59, 0.6);
+  --bg-card-hover: rgba(30, 41, 59, 0.85);
+  --bg-glass: rgba(255,255,255,0.04);
+  --bg-glass-hover: rgba(255,255,255,0.08);
+  --border: rgba(255,255,255,0.08);
+  --border-accent: rgba(99,102,241,0.4);
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #475569;
+  --accent: #6366f1;
+  --accent-2: #8b5cf6;
+  --accent-glow: rgba(99,102,241,0.15);
+  --teal: #14b8a6;
+  --amber: #f59e0b;
+  --emerald: #10b981;
+  --rose: #f43f5e;
+  --cyan: #06b6d4;
+  --font-head: 'Syne', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --sidebar-w: 260px;
+  --radius: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --blur: blur(20px);
+  --shadow: 0 8px 32px rgba(0,0,0,0.4);
+  --shadow-sm: 0 2px 12px rgba(0,0,0,0.3);
+}
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font-body);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* ===== BACKGROUND MESH ===== */
+.bg-mesh {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(99,102,241,0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 80%, rgba(139,92,246,0.1) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 40%, rgba(20,184,166,0.06) 0%, transparent 60%),
+    #0f172a;
+}
+
+/* ===== APP LAYOUT ===== */
+#app { display: flex; height: 100vh; position: relative; z-index: 1; overflow: hidden; }
+
+/* ===== SIDEBAR ===== */
+.sidebar {
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
+  height: 100vh;
+  background: rgba(15,23,42,0.95);
+  backdrop-filter: var(--blur);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+}
+.sidebar-header {
+  padding: 24px 20px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.logo {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 4px;
+}
+.logo-icon {
+  width: 38px; height: 38px; border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; flex-shrink: 0;
+  box-shadow: 0 0 20px rgba(99,102,241,0.3);
+}
+.logo-text { line-height: 1.2; }
+.logo-name { font-family: var(--font-head); font-size: 18px; font-weight: 800; letter-spacing: -0.5px; }
+.logo-sub { font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; text-transform: uppercase; }
+.user-chip {
+  margin-top: 14px; padding: 8px 10px;
+  background: var(--bg-glass); border-radius: 8px; border: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  transition: background 0.2s;
+}
+.user-chip:hover { background: var(--bg-glass-hover); }
+.avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; flex-shrink: 0;
+}
+.user-info { flex: 1; overflow: hidden; }
+.user-name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-plan { font-size: 10px; color: var(--accent); letter-spacing: 0.3px; }
+.plan-badge {
+  font-size: 9px; padding: 2px 6px; border-radius: 4px;
+  background: rgba(99,102,241,0.2); color: var(--accent); border: 1px solid rgba(99,102,241,0.3);
+  font-weight: 600; letter-spacing: 0.3px;
+}
+
+.sidebar-nav {
+  flex: 1; overflow-y: auto; padding: 12px 10px;
+  scrollbar-width: none;
+}
+.sidebar-nav::-webkit-scrollbar { display: none; }
+.nav-section-label {
+  font-size: 9px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--text-muted); padding: 12px 10px 6px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 8px; cursor: pointer;
+  transition: all 0.15s; position: relative; margin-bottom: 2px;
+  color: var(--text-secondary); font-size: 13px; font-weight: 400;
+  user-select: none;
+}
+.nav-item:hover { background: var(--bg-glass); color: var(--text-primary); }
+.nav-item.active {
+  background: var(--accent-glow); color: var(--text-primary);
+  border: 1px solid var(--border-accent);
+}
+.nav-item.active::before {
+  content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 18px; background: var(--accent); border-radius: 0 3px 3px 0;
+}
+.nav-icon { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
+.nav-badge {
+  margin-left: auto; font-size: 9px; font-weight: 700;
+  background: var(--accent); color: white; border-radius: 10px;
+  padding: 1px 6px; min-width: 18px; text-align: center;
+}
+
+.sidebar-footer {
+  padding: 12px 10px; border-top: 1px solid var(--border);
+}
+.apollo-mascot {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 8px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1));
+  border: 1px solid rgba(99,102,241,0.2);
+  cursor: pointer;
+}
+.mascot-img { font-size: 22px; }
+.mascot-text { font-size: 11px; }
+.mascot-name { font-weight: 600; color: var(--accent); }
+.mascot-status { color: var(--text-muted); }
+
+/* ===== MAIN CONTENT ===== */
+.main {
+  flex: 1; display: flex; flex-direction: column;
+  height: 100vh; overflow: hidden;
+}
+.topbar {
+  height: 58px; min-height: 58px;
+  background: rgba(15,23,42,0.7); backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 24px; gap: 16px;
+  z-index: 5;
+}
+.topbar-title {
+  font-family: var(--font-head); font-size: 16px; font-weight: 700; flex: 1;
+}
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
+.btn {
+  padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer;
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+  transition: all 0.15s; display: flex; align-items: center; gap: 6px;
+}
+.btn-primary {
+  background: var(--accent); color: white;
+  box-shadow: 0 0 15px rgba(99,102,241,0.25);
+}
+.btn-primary:hover { background: #4f46e5; box-shadow: 0 0 20px rgba(99,102,241,0.4); }
+.btn-ghost {
+  background: var(--bg-glass); color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { background: var(--bg-glass-hover); color: var(--text-primary); }
+.btn-danger { background: rgba(244,63,94,0.15); color: var(--rose); border: 1px solid rgba(244,63,94,0.3); }
+.btn-success { background: rgba(16,185,129,0.15); color: var(--emerald); border: 1px solid rgba(16,185,129,0.3); }
+.btn-sm { padding: 5px 10px; font-size: 11px; }
+
+.content {
+  flex: 1; overflow-y: auto; padding: 24px;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+.content::-webkit-scrollbar { width: 4px; }
+.content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+/* ===== GLASS CARDS ===== */
+.card {
+  background: var(--bg-card);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  transition: border-color 0.2s, background 0.2s;
+}
+.card:hover { border-color: rgba(255,255,255,0.12); background: var(--bg-card-hover); }
+.card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px;
+}
+.card-title {
+  font-family: var(--font-head); font-size: 14px; font-weight: 700;
+  display: flex; align-items: center; gap: 8px;
+}
+.card-icon { font-size: 16px; }
+
+/* ===== KPI GRID ===== */
+.kpi-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+  margin-bottom: 24px;
+}
+.kpi-card {
+  background: var(--bg-card);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  position: relative; overflow: hidden;
+  transition: all 0.2s;
+}
+.kpi-card:hover { transform: translateY(-2px); border-color: rgba(255,255,255,0.15); }
+.kpi-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+}
+.kpi-card.accent::before { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+.kpi-card.teal::before { background: linear-gradient(90deg, var(--teal), #0891b2); }
+.kpi-card.amber::before { background: linear-gradient(90deg, var(--amber), #f97316); }
+.kpi-card.emerald::before { background: linear-gradient(90deg, var(--emerald), var(--teal)); }
+.kpi-label { font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase; }
+.kpi-value { font-family: var(--font-head); font-size: 28px; font-weight: 800; line-height: 1; margin-bottom: 6px; }
+.kpi-delta { font-size: 11px; display: flex; align-items: center; gap: 4px; }
+.kpi-delta.up { color: var(--emerald); }
+.kpi-delta.down { color: var(--rose); }
+.kpi-icon { position: absolute; top: 18px; right: 18px; font-size: 22px; opacity: 0.3; }
+
+/* ===== CHARTS GRID ===== */
+.charts-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  margin-bottom: 24px;
+}
+
+/* ===== DATA TABLE ===== */
+.table-wrap { overflow-x: auto; margin-top: 8px; }
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; padding: 8px 12px;
+  font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--text-muted); border-bottom: 1px solid var(--border);
+}
+td {
+  padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: 13px; color: var(--text-secondary);
+}
+tr:hover td { background: var(--bg-glass); color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+.status-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 600;
+}
+.status-active { background: rgba(16,185,129,0.15); color: var(--emerald); border: 1px solid rgba(16,185,129,0.25); }
+.status-pending { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid rgba(245,158,11,0.25); }
+.status-paused { background: rgba(148,163,184,0.1); color: var(--text-muted); border: 1px solid rgba(148,163,184,0.15); }
+.status-done { background: rgba(99,102,241,0.15); color: var(--accent); border: 1px solid rgba(99,102,241,0.25); }
+
+/* ===== SECTION GRID ===== */
+.section-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.two-col { grid-template-columns: 1fr 1fr; }
+.three-col { grid-template-columns: repeat(3, 1fr); }
+
+/* ===== MODALS ===== */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.modal {
+  background: #1e293b; border: 1px solid var(--border);
+  border-radius: var(--radius-xl); padding: 28px;
+  width: 100%; max-width: 520px; max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+  animation: modalIn 0.2s ease;
+}
+.modal-lg { max-width: 700px; }
+@keyframes modalIn { from { opacity: 0; transform: scale(0.96) translateY(10px); } }
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px;
+}
+.modal-title { font-family: var(--font-head); font-size: 18px; font-weight: 800; }
+.modal-close {
+  width: 30px; height: 30px; border-radius: 8px; border: none;
+  background: var(--bg-glass); color: var(--text-secondary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 16px;
+  transition: all 0.15s;
+}
+.modal-close:hover { background: rgba(244,63,94,0.2); color: var(--rose); }
+
+/* ===== FORMS ===== */
+.form-group { margin-bottom: 16px; }
+.form-label {
+  display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px;
+}
+.form-input, .form-select, .form-textarea {
+  width: 100%; padding: 9px 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: rgba(15,23,42,0.8);
+  color: var(--text-primary); font-family: var(--font-body); font-size: 13px;
+  outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+  -webkit-appearance: none;
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+}
+.form-textarea { resize: vertical; min-height: 80px; }
+.form-select option { background: #1e293b; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
+.form-divider { height: 1px; background: var(--border); margin: 18px 0; }
+
+/* ===== KANBAN ===== */
+.kanban-board {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+  min-height: 400px;
+}
+.kanban-col {
+  background: rgba(15,23,42,0.6);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  display: flex; flex-direction: column;
+}
+.kanban-header {
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.kanban-col-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
+  display: flex; align-items: center; gap: 6px;
+}
+.col-dot { width: 8px; height: 8px; border-radius: 50%; }
+.col-iniciar .col-dot { background: var(--text-muted); }
+.col-execucao .col-dot { background: var(--accent); }
+.col-validando .col-dot { background: var(--amber); }
+.col-concluido .col-dot { background: var(--emerald); }
+.kanban-count {
+  font-size: 10px; padding: 2px 7px; border-radius: 10px;
+  background: var(--bg-glass); color: var(--text-muted); border: 1px solid var(--border);
+}
+.kanban-cards { padding: 10px; flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 80px; }
+.task-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px;
+  cursor: pointer; transition: all 0.15s;
+}
+.task-card:hover { border-color: rgba(255,255,255,0.15); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.task-title { font-size: 12px; font-weight: 500; margin-bottom: 6px; line-height: 1.4; }
+.task-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.task-tag {
+  font-size: 9px; padding: 2px 7px; border-radius: 6px; font-weight: 600;
+  background: rgba(99,102,241,0.15); color: var(--accent); border: 1px solid rgba(99,102,241,0.2);
+}
+.task-due { font-size: 10px; color: var(--text-muted); }
+.task-due.overdue { color: var(--rose); }
+.task-responsible {
+  margin-left: auto; font-size: 9px;
+  background: var(--bg-glass); padding: 2px 8px; border-radius: 6px;
+  color: var(--text-muted); border: 1px solid var(--border);
+}
+.add-task-btn {
+  margin: 0 10px 10px; padding: 8px; border-radius: 8px; border: none;
+  background: var(--bg-glass); color: var(--text-muted); cursor: pointer;
+  font-size: 11px; transition: all 0.15s; width: calc(100% - 20px);
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+}
+.add-task-btn:hover { background: var(--accent-glow); color: var(--accent); }
+
+/* ===== DIAGNÓSTICO RADAR ===== */
+.diagnostico-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.score-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.score-item { display: flex; align-items: center; gap: 10px; }
+.score-label { font-size: 12px; color: var(--text-secondary); width: 100px; flex-shrink: 0; }
+.score-bar { flex: 1; height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; }
+.score-fill { height: 100%; border-radius: 3px; transition: width 0.8s ease; }
+.score-val { font-size: 12px; font-weight: 600; width: 36px; text-align: right; }
+
+/* ===== PORTAL CLIENTE ===== */
+.portal-header {
+  text-align: center; padding: 32px 24px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1));
+  border: 1px solid rgba(99,102,241,0.2); border-radius: var(--radius-xl);
+  margin-bottom: 20px;
+}
+.portal-company { font-family: var(--font-head); font-size: 24px; font-weight: 800; }
+.portal-subtitle { color: var(--text-muted); margin-top: 4px; }
+.progress-circle-wrap { display: flex; align-items: center; gap: 24px; padding: 12px 0; }
+.progress-bar-lg { height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; margin-top: 8px; }
+.progress-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width 0.8s ease; }
+
+/* ===== FINANCEIRO ===== */
+.fin-summary {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px;
+}
+.fin-card {
+  border-radius: var(--radius); padding: 16px; text-align: center;
+  border: 1px solid var(--border);
+}
+.fin-card.receita { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.2); }
+.fin-card.inadimplente { background: rgba(244,63,94,0.08); border-color: rgba(244,63,94,0.2); }
+.fin-card.total { background: rgba(99,102,241,0.08); border-color: rgba(99,102,241,0.2); }
+.fin-value { font-family: var(--font-head); font-size: 24px; font-weight: 800; margin-top: 4px; }
+.fin-card.receita .fin-value { color: var(--emerald); }
+.fin-card.inadimplente .fin-value { color: var(--rose); }
+.fin-card.total .fin-value { color: var(--accent); }
+
+/* ===== LOGIN ===== */
+.login-wrap {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; padding: 20px;
+  background:
+    radial-gradient(ellipse 60% 50% at 30% 20%, rgba(99,102,241,0.15) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 70% 80%, rgba(139,92,246,0.12) 0%, transparent 60%),
+    #0f172a;
+}
+.login-box {
+  width: 100%; max-width: 420px;
+  background: rgba(30,41,59,0.8); backdrop-filter: var(--blur);
+  border: 1px solid var(--border); border-radius: var(--radius-xl);
+  padding: 40px; box-shadow: 0 32px 80px rgba(0,0,0,0.5);
+}
+.login-logo { text-align: center; margin-bottom: 32px; }
+.login-apollo { font-size: 48px; display: block; margin-bottom: 10px; filter: drop-shadow(0 0 15px rgba(99,102,241,0.5)); }
+.login-title { font-family: var(--font-head); font-size: 22px; font-weight: 800; }
+.login-sub { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
+.login-btn {
+  width: 100%; padding: 12px; border: none; border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: white; font-family: var(--font-head); font-size: 15px; font-weight: 700;
+  cursor: pointer; transition: all 0.2s; letter-spacing: 0.3px;
+  box-shadow: 0 4px 20px rgba(99,102,241,0.3);
+}
+.login-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(99,102,241,0.4); }
+.login-divider { text-align: center; color: var(--text-muted); font-size: 12px; margin: 18px 0; }
+
+/* ===== SKELETON ===== */
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.sk-line { height: 12px; margin-bottom: 8px; }
+.sk-title { height: 18px; width: 60%; margin-bottom: 16px; }
+.sk-card { height: 80px; border-radius: var(--radius); margin-bottom: 10px; }
+
+/* ===== LOADING OVERLAY ===== */
+.loading-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(15,23,42,0.95); backdrop-filter: var(--blur);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+}
+.loading-mascot { font-size: 64px; animation: bounce 0.8s ease-in-out infinite alternate; }
+@keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-12px); } }
+.loading-text { font-family: var(--font-head); font-size: 16px; color: var(--text-secondary); }
+.loading-dots { display: flex; gap: 6px; }
+.loading-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+  animation: pulse 0.9s ease-in-out infinite;
+}
+.loading-dot:nth-child(2) { animation-delay: 0.15s; background: var(--accent-2); }
+.loading-dot:nth-child(3) { animation-delay: 0.3s; background: var(--teal); }
+@keyframes pulse { 0%,100%{ opacity:0.3; transform:scale(0.8); } 50%{ opacity:1; transform:scale(1.2); } }
+
+/* ===== TABS ===== */
+.tabs { display: flex; gap: 2px; background: rgba(15,23,42,0.6); border-radius: 10px; padding: 4px; margin-bottom: 18px; width: fit-content; }
+.tab {
+  padding: 7px 16px; border-radius: 7px; border: none; cursor: pointer;
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+  color: var(--text-muted); background: transparent; transition: all 0.15s;
+}
+.tab.active { background: var(--bg-card); color: var(--text-primary); box-shadow: var(--shadow-sm); }
+.tab:hover:not(.active) { color: var(--text-secondary); }
+
+/* ===== TOOLTIP / EMPTY ===== */
+.empty-state {
+  text-align: center; padding: 40px 20px; color: var(--text-muted);
+}
+.empty-icon { font-size: 36px; margin-bottom: 10px; opacity: 0.5; }
+.empty-text { font-size: 13px; }
+
+/* ===== SCROLLBAR ===== */
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent; }
+*::-webkit-scrollbar { width: 4px; height: 4px; }
+*::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 1100px) {
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .kanban-board { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+  :root { --sidebar-w: 0px; }
+  .sidebar { display: none; }
+  .kpi-grid { grid-template-columns: 1fr 1fr; }
+  .charts-grid { grid-template-columns: 1fr; }
+  .kanban-board { grid-template-columns: 1fr; }
+  .diagnostico-grid { grid-template-columns: 1fr; }
+  .fin-summary { grid-template-columns: 1fr; }
+  .form-row { grid-template-columns: 1fr; }
+}
+/* Tag de seção */
+.section-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 20px; margin-bottom: 16px;
+  background: var(--accent-glow); color: var(--accent); border: 1px solid var(--border-accent);
+}
+.page-title { font-family: var(--font-head); font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+.page-sub { color: var(--text-muted); font-size: 13px; margin-bottom: 24px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="bg-mesh"></div>
+
+  <!-- LOADING OVERLAY (Apollo Mascote) -->
+  <transition name="fade">
+    <div class="loading-overlay" v-if="loading">
+      <div class="loading-mascot">🐾</div>
+      <div class="loading-text">Apollo está trabalhando...</div>
+      <div class="loading-dots">
+        <div class="loading-dot"></div>
+        <div class="loading-dot"></div>
+        <div class="loading-dot"></div>
+      </div>
+    </div>
+  </transition>
+
+  <!-- LOGIN -->
+  <div class="login-wrap" v-if="!authenticated">
+    <div class="login-box">
+      <div class="login-logo">
+        <span class="login-apollo">🐾</span>
+        <div class="login-title">SAE</div>
+        <div class="login-sub">Sistema Apollo Enterprise</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email do Consultor</label>
+        <input class="form-input" type="email" v-model="loginEmail" placeholder="seu@email.com" @keyup.enter="doLogin">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Senha</label>
+        <input class="form-input" type="password" v-model="loginPass" placeholder="••••••••" @keyup.enter="doLogin">
+      </div>
+      <div style="color: var(--rose); font-size: 12px; margin-bottom: 12px;" v-if="loginError">{{ loginError }}</div>
+      <button class="login-btn" @click="doLogin">Entrar no Sistema</button>
+      <div class="login-divider">— ou acesse como —</div>
+      <button class="btn btn-ghost" style="width:100%; justify-content:center;" @click="demoLogin">
+        🚀 Demo: Consultor Apollo
+      </button>
+      <p style="text-align:center; color:var(--text-muted); font-size:10px; margin-top:16px;">
+        Dados protegidos por SHA-256 · Multi-tenant isolado por consultor
+      </p>
+    </div>
+  </div>
+
+  <!-- MAIN APP -->
+  <template v-else>
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <div class="logo-icon">🐾</div>
+          <div class="logo-text">
+            <div class="logo-name">SAE</div>
+            <div class="logo-sub">Apollo Enterprise</div>
+          </div>
+        </div>
+        <div class="user-chip">
+          <div class="avatar">{{ user.initials }}</div>
+          <div class="user-info">
+            <div class="user-name">{{ user.nome }}</div>
+            <div class="user-plan">Plano {{ user.plano }}</div>
+          </div>
+          <span class="plan-badge">PRO</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Principal</div>
+        <div class="nav-item" :class="{active: currentPage==='dashboard'}" @click="navigate('dashboard')">
+          <span class="nav-icon">📊</span> Dashboard
+        </div>
+        <div class="nav-item" :class="{active: currentPage==='clientes'}" @click="navigate('clientes')">
+          <span class="nav-icon">🏢</span> Clientes
+          <span class="nav-badge" v-if="clientes.length">{{ clientes.length }}</span>
+        </div>
+
+        <div class="nav-section-label">Ferramentas</div>
+        <div class="nav-item" :class="{active: currentPage==='diagnostico'}" @click="navigate('diagnostico')">
+          <span class="nav-icon">🔍</span> Diagnóstico
+        </div>
+        <div class="nav-item" :class="{active: currentPage==='projetos'}" @click="navigate('projetos')">
+          <span class="nav-icon">📋</span> Projetos 5W2H
+        </div>
+        <div class="nav-item" :class="{active: currentPage==='financeiro'}" @click="navigate('financeiro')">
+          <span class="nav-icon">💰</span> Financeiro
+        </div>
+
+        <div class="nav-section-label">Portal</div>
+        <div class="nav-item" :class="{active: currentPage==='portal'}" @click="navigate('portal')">
+          <span class="nav-icon">🌐</span> Portal do Cliente
+        </div>
+        <div class="nav-item" :class="{active: currentPage==='relatorios'}" @click="navigate('relatorios')">
+          <span class="nav-icon">📄</span> Relatórios
+        </div>
+
+        <div class="nav-section-label">Sistema</div>
+        <div class="nav-item" :class="{active: currentPage==='configuracoes'}" @click="navigate('configuracoes')">
+          <span class="nav-icon">⚙️</span> Configurações
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="apollo-mascot">
+          <span class="mascot-img">🐾</span>
+          <div class="mascot-text">
+            <div class="mascot-name">Apollo</div>
+            <div class="mascot-status">Sistema operacional</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+      <!-- TOPBAR -->
+      <div class="topbar">
+        <div class="topbar-title">{{ pageTitle }}</div>
+        <div class="topbar-actions">
+          <template v-if="currentPage==='clientes'">
+            <button class="btn btn-primary" @click="openModal('novoCliente')">+ Novo Cliente</button>
+          </template>
+          <template v-if="currentPage==='projetos'">
+            <button class="btn btn-ghost btn-sm" @click="openModal('novaTarefa')">+ Nova Tarefa</button>
+          </template>
+          <template v-if="currentPage==='diagnostico'">
+            <button class="btn btn-primary" @click="openModal('novoDiagnostico')">+ Diagnóstico</button>
+          </template>
+          <button class="btn btn-ghost btn-sm" @click="doLogout">Sair</button>
+        </div>
+      </div>
+
+      <!-- CONTENT -->
+      <div class="content">
+
+        <!-- =========== DASHBOARD =========== -->
+        <div v-if="currentPage==='dashboard'">
+          <div class="section-tag">📊 Governança</div>
+          <div class="page-title">Dashboard Central</div>
+          <div class="page-sub">Visão executiva do seu portfólio de clientes · Atualizado agora</div>
+
+          <div class="kpi-grid">
+            <div class="kpi-card accent">
+              <div class="kpi-icon">🏢</div>
+              <div class="kpi-label">Clientes Ativos</div>
+              <div class="kpi-value">{{ kpis.clientesAtivos }}</div>
+              <div class="kpi-delta up">↑ 2 este mês</div>
+            </div>
+            <div class="kpi-card teal">
+              <div class="kpi-icon">📈</div>
+              <div class="kpi-label">ROI Médio</div>
+              <div class="kpi-value">{{ kpis.roiMedio }}%</div>
+              <div class="kpi-delta up">↑ 4.2pp vs trimestre</div>
+            </div>
+            <div class="kpi-card amber">
+              <div class="kpi-icon">✅</div>
+              <div class="kpi-label">Tarefas Concluídas</div>
+              <div class="kpi-value">{{ kpis.tarefasConcluidas }}</div>
+              <div class="kpi-delta up">↑ 12 esta semana</div>
+            </div>
+            <div class="kpi-card emerald">
+              <div class="kpi-icon">💰</div>
+              <div class="kpi-label">Receita Mensal</div>
+              <div class="kpi-value">R${{ kpis.receita }}</div>
+              <div class="kpi-delta up">↑ R$1.5k vs mês ant.</div>
+            </div>
+          </div>
+
+          <div class="charts-grid">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title"><span class="card-icon">🕸️</span> Maturidade Organizacional</div>
+                <span style="font-size:11px;color:var(--text-muted);">Média do portfólio</span>
+              </div>
+              <canvas id="radarChart" height="220"></canvas>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title"><span class="card-icon">📊</span> Evolução Mensal</div>
+                <span style="font-size:11px;color:var(--text-muted);">Últimos 6 meses</span>
+              </div>
+              <canvas id="barChart" height="220"></canvas>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><span class="card-icon">🏢</span> Portfólio de Clientes</div>
+              <button class="btn btn-ghost btn-sm" @click="navigate('clientes')">Ver todos →</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Empresa</th>
+                    <th>Segmento</th>
+                    <th>Maturidade</th>
+                    <th>Tarefas</th>
+                    <th>Status</th>
+                    <th>Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="c in clientes.slice(0,5)" :key="c.uuid">
+                    <td style="color:var(--text-primary);font-weight:500;">{{ c.empresa_nome }}</td>
+                    <td>{{ c.segmento }}</td>
+                    <td>
+                      <div style="display:flex;align-items:center;gap:8px;">
+                        <div style="width:60px;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;">
+                          <div :style="{width:c.maturidade+'%', height:'100%', borderRadius:'2px', background:'linear-gradient(90deg,var(--accent),var(--accent-2))'}"></div>
+                        </div>
+                        <span style="font-size:11px;color:var(--text-muted);">{{ c.maturidade }}%</span>
+                      </div>
+                    </td>
+                    <td>{{ c.tarefas_abertas }} abertas</td>
+                    <td><span class="status-badge" :class="'status-'+c.status">{{ c.status }}</span></td>
+                    <td>
+                      <button class="btn btn-ghost btn-sm" @click="selectCliente(c)">Abrir</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- =========== CLIENTES =========== -->
+        <div v-if="currentPage==='clientes'">
+          <div class="section-tag">🏢 CRM</div>
+          <div class="page-title">Gestão de Clientes</div>
+          <div class="page-sub">{{ clientes.length }} empresas no portfólio · Multi-tenant isolado</div>
+
+          <div class="section-grid three-col" style="margin-bottom:20px;">
+            <div class="kpi-card accent">
+              <div class="kpi-label">Total Clientes</div>
+              <div class="kpi-value">{{ clientes.length }}</div>
+            </div>
+            <div class="kpi-card teal">
+              <div class="kpi-label">Ativos</div>
+              <div class="kpi-value">{{ clientes.filter(c=>c.status==='active').length }}</div>
+            </div>
+            <div class="kpi-card amber">
+              <div class="kpi-label">Em Onboarding</div>
+              <div class="kpi-value">{{ clientes.filter(c=>c.status==='pending').length }}</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><span>🔍</span> Buscar Cliente</div>
+            </div>
+            <input class="form-input" placeholder="Digite o nome ou segmento..." v-model="busca" style="margin-bottom:12px;">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Empresa</th>
+                    <th>Segmento</th>
+                    <th>Responsável</th>
+                    <th>Maturidade</th>
+                    <th>Mensalidade</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="c in clientesFiltrados" :key="c.uuid">
+                    <td>
+                      <div style="font-weight:500;color:var(--text-primary);">{{ c.empresa_nome }}</div>
+                      <div style="font-size:10px;color:var(--text-muted);">ID: {{ c.uuid }}</div>
+                    </td>
+                    <td>{{ c.segmento }}</td>
+                    <td>{{ c.responsavel }}</td>
+                    <td>
+                      <div style="display:flex;align-items:center;gap:6px;">
+                        <div style="width:50px;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;">
+                          <div :style="{width:c.maturidade+'%', height:'100%', borderRadius:'2px', background:'var(--accent)'}"></div>
+                        </div>
+                        <span style="font-size:10px;color:var(--text-muted);">{{ c.maturidade }}%</span>
+                      </div>
+                    </td>
+                    <td style="color:var(--emerald);">R$ {{ c.mensalidade }}</td>
+                    <td><span class="status-badge" :class="'status-'+c.status">{{ c.status }}</span></td>
+                    <td>
+                      <div style="display:flex;gap:4px;">
+                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('projetos')">📋</button>
+                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('diagnostico')">🔍</button>
+                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('portal')">🌐</button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="empty-state" v-if="clientesFiltrados.length===0">
+                <div class="empty-icon">🔍</div>
+                <div class="empty-text">Nenhum cliente encontrado</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- =========== DIAGNÓSTICO =========== -->
+        <div v-if="currentPage==='diagnostico'">
+          <div class="section-tag">🔍 Análise</div>
+          <div class="page-title">Módulo de Diagnóstico</div>
+          <div class="page-sub">Matrizes: 5S · SWOT · Clima Organizacional · Score de Maturidade</div>
+
+          <div class="tabs">
+            <button class="tab" :class="{active: diagTab==='lista'}" @click="diagTab='lista'">Diagnósticos</button>
+            <button class="tab" :class="{active: diagTab==='responder'}" @click="diagTab='responder'">Responder</button>
+            <button class="tab" :class="{active: diagTab==='resultados'}" @click="diagTab='resultados'">Resultados</button>
+          </div>
+
+          <!-- LISTA -->
+          <div v-if="diagTab==='lista'">
+            <div class="diagnostico-grid">
+              <div class="card" v-for="d in diagnosticos" :key="d.uuid">
+                <div class="card-header">
+                  <div class="card-title">
+                    <span>{{ d.icon }}</span> {{ d.tipo_matriz }}
+                  </div>
+                  <span class="status-badge status-active">{{ d.status }}</span>
+                </div>
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+                  Cliente: <strong style="color:var(--text-secondary);">{{ d.cliente_nome }}</strong>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+                  <div style="font-size:11px;color:var(--text-muted);">Score:</div>
+                  <div style="flex:1;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;">
+                    <div :style="{width:d.score+'%',height:'100%',borderRadius:'3px',background:'linear-gradient(90deg,var(--accent),var(--teal))'}"></div>
+                  </div>
+                  <div style="font-size:13px;font-weight:700;color:var(--accent);">{{ d.score }}%</div>
+                </div>
+                <div class="score-list">
+                  <div class="score-item" v-for="dim in d.dimensoes" :key="dim.nome">
+                    <div class="score-label">{{ dim.nome }}</div>
+                    <div class="score-bar">
+                      <div class="score-fill" :style="{width:dim.valor+'%', background:dim.cor}"></div>
+                    </div>
+                    <div class="score-val" :style="{color:dim.cor}">{{ dim.valor }}%</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px;margin-top:14px;">
+                  <button class="btn btn-ghost btn-sm" @click="diagTab='resultados'">Ver Detalhes</button>
+                  <button class="btn btn-primary btn-sm">📄 Exportar PDF</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- RESPONDER DIAGNÓSTICO -->
+          <div v-if="diagTab==='responder'">
+            <div class="card" style="max-width:600px;">
+              <div class="card-header">
+                <div class="card-title">📝 Diagnóstico 5S — Formulário</div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Empresa Avaliada</label>
+                <select class="form-select">
+                  <option v-for="c in clientes" :key="c.uuid">{{ c.empresa_nome }}</option>
+                </select>
+              </div>
+              <div class="form-divider"></div>
+              <div v-for="(q, i) in questionario5S" :key="i" style="margin-bottom:20px;">
+                <div style="font-size:13px;font-weight:500;margin-bottom:10px;color:var(--text-primary);">
+                  {{ i+1 }}. {{ q.pergunta }}
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                  <button v-for="n in 5" :key="n"
+                    class="btn" :class="q.resposta===n ? 'btn-primary' : 'btn-ghost'"
+                    style="min-width:40px;" @click="q.resposta=n">{{ n }}</button>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:4px;">
+                  <span>Muito ruim</span><span>Excelente</span>
+                </div>
+              </div>
+              <div class="form-footer">
+                <button class="btn btn-ghost">Cancelar</button>
+                <button class="btn btn-primary" @click="salvarDiagnostico">Calcular Score</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- RESULTADOS -->
+          <div v-if="diagTab==='resultados'">
+            <div class="charts-grid">
+              <div class="card">
+                <div class="card-title" style="margin-bottom:14px;">🕸️ Radar de Maturidade</div>
+                <canvas id="diagRadar" height="260"></canvas>
+              </div>
+              <div class="card">
+                <div class="card-title" style="margin-bottom:14px;">📊 SWOT Matrix</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                  <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:14px;">
+                    <div style="font-size:11px;font-weight:700;color:var(--emerald);margin-bottom:8px;">💪 FORÇAS</div>
+                    <div style="font-size:11px;color:var(--text-secondary);line-height:1.7;">
+                      • Liderança consolidada<br>• Processos certificados<br>• Equipe experiente
+                    </div>
+                  </div>
+                  <div style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.2);border-radius:10px;padding:14px;">
+                    <div style="font-size:11px;font-weight:700;color:var(--rose);margin-bottom:8px;">⚠️ FRAQUEZAS</div>
+                    <div style="font-size:11px;color:var(--text-secondary);line-height:1.7;">
+                      • TI defasada<br>• Alta rotatividade<br>• Comunicação falha
+                    </div>
+                  </div>
+                  <div style="background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.2);border-radius:10px;padding:14px;">
+                    <div style="font-size:11px;font-weight:700;color:var(--cyan);margin-bottom:8px;">🚀 OPORTUNIDADES</div>
+                    <div style="font-size:11px;color:var(--text-secondary);line-height:1.7;">
+                      • Expansão digital<br>• Novos mercados<br>• Parcerias estratégicas
+                    </div>
+                  </div>
+                  <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:14px;">
+                    <div style="font-size:11px;font-weight:700;color:var(--amber);margin-bottom:8px;">🎯 AMEAÇAS</div>
+                    <div style="font-size:11px;color:var(--text-secondary);line-height:1.7;">
+                      • Concorrência agressiva<br>• Crise econômica<br>• Regulamentações
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- =========== PROJETOS 5W2H =========== -->
+        <div v-if="currentPage==='projetos'">
+          <div class="section-tag">📋 Planos de Ação</div>
+          <div class="page-title">Gestão de Projetos · Kanban 5W2H</div>
+          <div class="page-sub">
+            <span v-if="clienteSelecionado">Cliente: <strong style="color:var(--accent)">{{ clienteSelecionado.empresa_nome }}</strong> · </span>
+            {{ tarefas.length }} tarefas no sistema
+          </div>
+
+          <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;" v-if="clientes.length">
+            <select class="form-select" style="width:auto;" v-model="filtroCliente">
+              <option value="">Todos os clientes</option>
+              <option v-for="c in clientes" :key="c.uuid" :value="c.uuid">{{ c.empresa_nome }}</option>
+            </select>
+            <button class="btn btn-ghost btn-sm">📅 Filtrar por prazo</button>
+            <button class="btn btn-primary btn-sm" @click="openModal('novaTarefa')">+ 5W2H</button>
+          </div>
+
+          <div class="kanban-board">
+            <div v-for="col in kanbanColunas" :key="col.id" class="kanban-col" :class="'col-'+col.id">
+              <div class="kanban-header">
+                <div class="kanban-col-title">
+                  <div class="col-dot"></div>
+                  {{ col.label }}
+                </div>
+                <span class="kanban-count">{{ tarefasPorStatus(col.id).length }}</span>
+              </div>
+              <div class="kanban-cards">
+                <div class="task-card"
+                  v-for="t in tarefasPorStatus(col.id)" :key="t.uuid"
+                  @click="openModal('verTarefa', t)">
+                  <div class="task-title">{{ t.descricao }}</div>
+                  <div class="task-meta">
+                    <span class="task-tag">{{ t.tipo }}</span>
+                    <span class="task-due" :class="{overdue: isOverdue(t.prazo_iso)}">
+                      📅 {{ formatDate(t.prazo_iso) }}
+                    </span>
+                    <span class="task-responsible">{{ t.responsavel.split(' ')[0] }}</span>
+                  </div>
+                </div>
+                <div class="empty-state" style="padding:20px;" v-if="tarefasPorStatus(col.id).length===0">
+                  <div style="font-size:20px;opacity:0.3;">○</div>
+                </div>
+              </div>
+              <button class="add-task-btn" @click="openModal('novaTarefa', {status: col.id})">
+                + Adicionar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- =========== FINANCEIRO =========== -->
+        <div v-if="currentPage==='financeiro'">
+          <div class="section-tag">💰 Financeiro</div>
+          <div class="page-title">Controle Financeiro</div>
+          <div class="page-sub">Mensalidades, recebimentos e inadimplência</div>
+
+          <div class="fin-summary">
+            <div class="fin-card receita">
+              <div style="font-size:11px;color:var(--text-muted);">RECEITA CONFIRMADA</div>
+              <div class="fin-value">R$ {{ financeiro.receitaTotal }}</div>
+            </div>
+            <div class="fin-card inadimplente">
+              <div style="font-size:11px;color:var(--text-muted);">INADIMPLÊNCIA</div>
+              <div class="fin-value">R$ {{ financeiro.inadimplente }}</div>
+            </div>
+            <div class="fin-card total">
+              <div style="font-size:11px;color:var(--text-muted);">POTENCIAL MENSAL</div>
+              <div class="fin-value">R$ {{ financeiro.potencial }}</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title" style="margin-bottom:16px;">📊 Histórico de Pagamentos</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Cliente</th>
+                    <th>Mensalidade</th>
+                    <th>Vencimento</th>
+                    <th>Status</th>
+                    <th>Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="p in pagamentos" :key="p.uuid">
+                    <td style="color:var(--text-primary);font-weight:500;">{{ p.cliente }}</td>
+                    <td style="color:var(--emerald);">R$ {{ p.valor }}</td>
+                    <td>{{ p.vencimento }}</td>
+                    <td>
+                      <span class="status-badge" :class="p.pago ? 'status-done' : 'status-pending'">
+                        {{ p.pago ? '✓ Pago' : '⏳ Pendente' }}
+                      </span>
+                    </td>
+                    <td>
+                      <button class="btn btn-success btn-sm" v-if="!p.pago" @click="marcarPago(p)">Confirmar</button>
+                      <button class="btn btn-ghost btn-sm" v-else>Recibo</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- =========== PORTAL DO CLIENTE =========== -->
+        <div v-if="currentPage==='portal'">
+          <div class="section-tag">🌐 Portal</div>
+          <div class="page-title">Portal do Cliente</div>
+          <div class="page-sub">Visão do cliente — Acesso seguro via link único</div>
+
+          <div class="card" style="margin-bottom:18px;">
+            <div class="card-header">
+              <div class="card-title">🔑 Gerar Link de Acesso</div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+              <div style="flex:1;">
+                <label class="form-label">Cliente</label>
+                <select class="form-select" v-model="portalClienteId">
+                  <option value="">Selecionar cliente...</option>
+                  <option v-for="c in clientes" :key="c.uuid" :value="c.uuid">{{ c.empresa_nome }}</option>
+                </select>
+              </div>
+              <button class="btn btn-primary" @click="gerarLinkPortal">🔗 Gerar Link</button>
+              <button class="btn btn-ghost" @click="verPreviewPortal">👁 Preview</button>
+            </div>
+            <div v-if="linkPortal" style="margin-top:12px;padding:10px;background:var(--bg-glass);border-radius:8px;border:1px solid var(--border);">
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Link gerado:</div>
+              <div style="font-size:12px;color:var(--accent);word-break:break-all;">{{ linkPortal }}</div>
+            </div>
+          </div>
+
+          <!-- PREVIEW PORTAL -->
+          <div v-if="showPortalPreview && clienteSelecionado">
+            <div class="portal-header">
+              <div style="font-size:32px;margin-bottom:10px;">🏢</div>
+              <div class="portal-company">{{ clienteSelecionado.empresa_nome }}</div>
+              <div class="portal-subtitle">Painel de Progresso · Consultoria Organizacional</div>
+            </div>
+
+            <div class="section-grid two-col">
+              <div class="card">
+                <div class="card-title" style="margin-bottom:14px;">📋 Tarefas do Projeto</div>
+                <div v-for="t in tarefasDoCliente.slice(0,4)" :key="t.uuid" style="padding:10px 0;border-bottom:1px solid var(--border);">
+                  <div style="font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.descricao }}</div>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    <span class="status-badge" :class="'status-'+t.status">{{ t.status }}</span>
+                    <span style="font-size:10px;color:var(--text-muted);">📅 {{ formatDate(t.prazo_iso) }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-title" style="margin-bottom:14px;">📈 Progresso Geral</div>
+                <div style="text-align:center;margin-bottom:18px;">
+                  <div style="font-family:var(--font-head);font-size:42px;font-weight:800;color:var(--accent);">
+                    {{ clienteSelecionado.maturidade }}%
+                  </div>
+                  <div style="color:var(--text-muted);font-size:12px;">Maturidade Organizacional</div>
+                </div>
+                <div class="progress-bar-lg">
+                  <div class="progress-fill" :style="{width:clienteSelecionado.maturidade+'%'}"></div>
+                </div>
+                <div style="margin-top:18px;">
+                  <div v-for="m in metasCliente" :key="m.nome" style="margin-bottom:10px;">
+                    <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+                      <span>{{ m.nome }}</span>
+                      <span style="color:var(--accent);">{{ m.progresso }}%</span>
+                    </div>
+                    <div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;">
+                      <div :style="{width:m.progresso+'%',height:'100%',background:m.cor,borderRadius:'2px'}"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top:14px;text-align:center;">
+              <div style="font-size:20px;margin-bottom:10px;">📄</div>
+              <div style="font-family:var(--font-head);font-size:15px;font-weight:700;margin-bottom:6px;">Relatório de Progresso</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Gerado via Google Apps Script HtmlService · PDF com resumo executivo</div>
+              <button class="btn btn-primary" @click="gerarRelatorio">📄 Gerar Relatório PDF</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- =========== RELATÓRIOS =========== -->
+        <div v-if="currentPage==='relatorios'">
+          <div class="section-tag">📄 Documentos</div>
+          <div class="page-title">Central de Relatórios</div>
+          <div class="page-sub">PDF automático via Google Apps Script HtmlService</div>
+
+          <div class="section-grid two-col">
+            <div class="card" v-for="r in tiposRelatorio" :key="r.id" style="cursor:pointer;" @click="gerarRelatorioTipo(r)">
+              <div style="font-size:28px;margin-bottom:10px;">{{ r.icon }}</div>
+              <div style="font-family:var(--font-head);font-size:15px;font-weight:700;margin-bottom:6px;">{{ r.nome }}</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">{{ r.desc }}</div>
+              <button class="btn btn-primary btn-sm">Gerar PDF</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- =========== CONFIGURAÇÕES =========== -->
+        <div v-if="currentPage==='configuracoes'">
+          <div class="section-tag">⚙️ Sistema</div>
+          <div class="page-title">Configurações</div>
+          <div class="page-sub">Perfil do consultor, integrações e Google Sheets</div>
+
+          <div class="section-grid two-col">
+            <div class="card">
+              <div class="card-title" style="margin-bottom:16px;">👤 Perfil do Consultor</div>
+              <div class="form-group">
+                <label class="form-label">Nome</label>
+                <input class="form-input" v-model="user.nome">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Email</label>
+                <input class="form-input" v-model="user.email" type="email">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Plano SaaS</label>
+                <select class="form-select">
+                  <option>Pro</option><option>Enterprise</option>
+                </select>
+              </div>
+              <button class="btn btn-primary">Salvar Perfil</button>
+            </div>
+            <div class="card">
+              <div class="card-title" style="margin-bottom:16px;">🗄️ Google Sheets (Backend)</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Estrutura do banco de dados NoSQL via GAS</div>
+              <div v-for="sheet in sheetsConfig" :key="sheet.nome" style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+                <span style="font-size:16px;">📋</span>
+                <div style="flex:1;">
+                  <div style="font-size:12px;font-weight:500;color:var(--text-primary);">{{ sheet.nome }}</div>
+                  <div style="font-size:10px;color:var(--text-muted);">{{ sheet.cols }}</div>
+                </div>
+                <span class="status-badge status-active">ativo</span>
+              </div>
+              <button class="btn btn-ghost" style="margin-top:12px;" @click="runSetup">🚀 Executar Setup</button>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:14px;">
+            <div class="card-title" style="margin-bottom:12px;">🔒 Segurança Multi-Tenant</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+              <div style="padding:14px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;text-align:center;">
+                <div style="font-size:22px;margin-bottom:6px;">🔐</div>
+                <div style="font-size:11px;font-weight:700;color:var(--emerald);">SHA-256</div>
+                <div style="font-size:10px;color:var(--text-muted);">Hash do e-mail</div>
+              </div>
+              <div style="padding:14px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:10px;text-align:center;">
+                <div style="font-size:22px;margin-bottom:6px;">🏠</div>
+                <div style="font-size:11px;font-weight:700;color:var(--accent);">Multi-tenant</div>
+                <div style="font-size:10px;color:var(--text-muted);">Dados isolados</div>
+              </div>
+              <div style="padding:14px;background:rgba(6,182,212,0.08);border:1px solid rgba(6,182,212,0.2);border-radius:10px;text-align:center;">
+                <div style="font-size:22px;margin-bottom:6px;">📡</div>
+                <div style="font-size:11px;font-weight:700;color:var(--cyan);">google.script.run</div>
+                <div style="font-size:10px;color:var(--text-muted);">Sem CORS</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- .content -->
+    </main>
+
+    <!-- ====== MODAIS ====== -->
+
+    <!-- MODAL: Novo Cliente -->
+    <div class="modal-overlay" v-if="modal==='novoCliente'" @click.self="closeModal">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">🏢 Novo Cliente</div>
+          <button class="modal-close" @click="closeModal">×</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nome da Empresa *</label>
+          <input class="form-input" v-model="form.empresa_nome" placeholder="Ex: TechCorp Ltda">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Segmento</label>
+            <select class="form-select" v-model="form.segmento">
+              <option>Tecnologia</option><option>Saúde</option><option>Varejo</option>
+              <option>Indústria</option><option>Educação</option><option>Serviços</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select class="form-select" v-model="form.status">
+              <option value="active">Ativo</option>
+              <option value="pending">Onboarding</option>
+              <option value="paused">Pausado</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Responsável</label>
+            <input class="form-input" v-model="form.responsavel" placeholder="Nome do contato">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Mensalidade (R$)</label>
+            <input class="form-input" v-model="form.mensalidade" type="number" placeholder="0.00">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Observações</label>
+          <textarea class="form-textarea" v-model="form.obs" placeholder="Contexto inicial, objetivos..."></textarea>
+        </div>
+        <div class="form-footer">
+          <button class="btn btn-ghost" @click="closeModal">Cancelar</button>
+          <button class="btn btn-primary" @click="salvarCliente">Salvar Cliente</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Nova Tarefa 5W2H -->
+    <div class="modal-overlay" v-if="modal==='novaTarefa'" @click.self="closeModal">
+      <div class="modal modal-lg">
+        <div class="modal-header">
+          <div class="modal-title">📋 Nova Tarefa · Metodologia 5W2H</div>
+          <button class="modal-close" @click="closeModal">×</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label class="form-label">🔴 O QUE fazer? (What)</label>
+            <input class="form-input" v-model="formTarefa.descricao" placeholder="Descrição da ação">
+          </div>
+          <div class="form-group">
+            <label class="form-label">👤 QUEM? (Who)</label>
+            <input class="form-input" v-model="formTarefa.responsavel" placeholder="Responsável">
+          </div>
+          <div class="form-group">
+            <label class="form-label">📅 QUANDO? (When)</label>
+            <input class="form-input" type="date" v-model="formTarefa.prazo_iso">
+          </div>
+          <div class="form-group">
+            <label class="form-label">📍 ONDE? (Where)</label>
+            <input class="form-input" v-model="formTarefa.onde" placeholder="Local / Departamento">
+          </div>
+          <div class="form-group">
+            <label class="form-label">❓ POR QUÊ? (Why)</label>
+            <input class="form-input" v-model="formTarefa.porque" placeholder="Objetivo / Justificativa">
+          </div>
+          <div class="form-group">
+            <label class="form-label">⚙️ COMO? (How)</label>
+            <input class="form-input" v-model="formTarefa.como" placeholder="Método / Processo">
+          </div>
+          <div class="form-group">
+            <label class="form-label">💰 QUANTO CUSTA? (How Much)</label>
+            <input class="form-input" v-model="formTarefa.custo" placeholder="Custo estimado">
+          </div>
+          <div class="form-group">
+            <label class="form-label">📊 COMO MEDIR?</label>
+            <input class="form-input" v-model="formTarefa.indicador" placeholder="KPI / Indicador de sucesso">
+          </div>
+        </div>
+        <div class="form-row" style="margin-top:4px;">
+          <div class="form-group">
+            <label class="form-label">Cliente</label>
+            <select class="form-select" v-model="formTarefa.cliente_id">
+              <option v-for="c in clientes" :key="c.uuid" :value="c.uuid">{{ c.empresa_nome }}</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Coluna Kanban</label>
+            <select class="form-select" v-model="formTarefa.status">
+              <option value="iniciar">A Iniciar</option>
+              <option value="execucao">Em Execução</option>
+              <option value="validando">Validando</option>
+              <option value="concluido">Concluído</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-footer">
+          <button class="btn btn-ghost" @click="closeModal">Cancelar</button>
+          <button class="btn btn-primary" @click="salvarTarefa">Criar Tarefa</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Ver Tarefa -->
+    <div class="modal-overlay" v-if="modal==='verTarefa'" @click.self="closeModal">
+      <div class="modal modal-lg" v-if="tarefaSelecionada">
+        <div class="modal-header">
+          <div class="modal-title">📋 {{ tarefaSelecionada.descricao }}</div>
+          <button class="modal-close" @click="closeModal">×</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div v-for="campo in campos5W2H(tarefaSelecionada)" :key="campo.label" style="padding:12px;background:var(--bg-glass);border-radius:8px;border:1px solid var(--border);">
+            <div style="font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:4px;">{{ campo.label }}</div>
+            <div style="font-size:13px;color:var(--text-primary);">{{ campo.valor || '—' }}</div>
+          </div>
+        </div>
+        <div style="margin-top:18px;">
+          <label class="form-label">Status</label>
+          <select class="form-select" style="width:auto;" v-model="tarefaSelecionada.status">
+            <option value="iniciar">A Iniciar</option>
+            <option value="execucao">Em Execução</option>
+            <option value="validando">Validando</option>
+            <option value="concluido">Concluído</option>
+          </select>
+        </div>
+        <div style="margin-top:14px;">
+          <label class="form-label">📎 Evidência (URL ou descrição)</label>
+          <input class="form-input" placeholder="https://foto.link / Descrição da conclusão...">
+        </div>
+        <div class="form-footer">
+          <button class="btn btn-danger btn-sm" @click="excluirTarefa(tarefaSelecionada)">Excluir</button>
+          <div style="flex:1;"></div>
+          <button class="btn btn-ghost" @click="closeModal">Fechar</button>
+          <button class="btn btn-primary" @click="atualizarTarefa">Salvar Alterações</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Novo Diagnóstico -->
+    <div class="modal-overlay" v-if="modal==='novoDiagnostico'" @click.self="closeModal">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">🔍 Novo Diagnóstico</div>
+          <button class="modal-close" @click="closeModal">×</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tipo de Matriz</label>
+          <select class="form-select" v-model="formDiag.tipo">
+            <option>5S</option><option>SWOT</option>
+            <option>Clima Organizacional</option><option>Processos</option><option>Liderança</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Cliente</label>
+          <select class="form-select" v-model="formDiag.cliente_id">
+            <option v-for="c in clientes" :key="c.uuid" :value="c.uuid">{{ c.empresa_nome }}</option>
+          </select>
+        </div>
+        <div class="form-footer">
+          <button class="btn btn-ghost" @click="closeModal">Cancelar</button>
+          <button class="btn btn-primary" @click="criarDiagnostico">Criar e Responder</button>
+        </div>
+      </div>
+    </div>
+
+  </template>
+</div>
+
+<script>
+const { createApp, ref, computed, onMounted, watch, nextTick } = Vue;
+
+/* ===== MOCK DATA (substituir por google.script.run em produção) ===== */
+const mockClientes = [
+  { uuid:'c-001', empresa_nome:'TechCorp Ltda', segmento:'Tecnologia', status:'active', responsavel:'João Silva', maturidade:72, mensalidade:'3.500', tarefas_abertas:4 },
+  { uuid:'c-002', empresa_nome:'MedSaúde SA', segmento:'Saúde', status:'active', responsavel:'Ana Costa', maturidade:58, mensalidade:'5.200', tarefas_abertas:7 },
+  { uuid:'c-003', empresa_nome:'VarejoMax', segmento:'Varejo', status:'pending', responsavel:'Pedro Lima', maturidade:34, mensalidade:'2.800', tarefas_abertas:12 },
+  { uuid:'c-004', empresa_nome:'IndusPro Ind.', segmento:'Indústria', status:'active', responsavel:'Maria Souza', maturidade:81, mensalidade:'7.000', tarefas_abertas:2 },
+  { uuid:'c-005', empresa_nome:'EduFuture', segmento:'Educação', status:'paused', responsavel:'Carlos Alves', maturidade:45, mensalidade:'1.800', tarefas_abertas:0 },
+];
+const mockTarefas = [
+  { uuid:'t-001', cliente_id:'c-001', descricao:'Mapear processos de TI', responsavel:'João Silva', prazo_iso:'2026-03-20', status:'execucao', tipo:'Processo', onde:'TI', porque:'Diagnóstico de gaps', como:'Entrevistas', custo:'R$ 0', indicador:'100% processos mapeados' },
+  { uuid:'t-002', cliente_id:'c-001', descricao:'Implantar gestão visual 5S', responsavel:'Ana Costa', prazo_iso:'2026-04-01', status:'iniciar', tipo:'5S', onde:'Operações', porque:'Reduzir desperdícios', como:'Treinamento', custo:'R$ 1.200', indicador:'Auditoria 5S aprovada' },
+  { uuid:'t-003', cliente_id:'c-002', descricao:'Revisar fluxo de atendimento', responsavel:'Pedro Lima', prazo_iso:'2026-03-15', status:'validando', tipo:'Processo', onde:'Recepção', porque:'Reduzir espera', como:'Mapeamento AS-IS/TO-BE', custo:'R$ 500', indicador:'NPS > 80' },
+  { uuid:'t-004', cliente_id:'c-002', descricao:'Treinamento de liderança', responsavel:'Carlos Alves', prazo_iso:'2026-05-10', status:'iniciar', tipo:'RH', onde:'Toda empresa', porque:'Desenvolver gestores', como:'Workshop 40h', custo:'R$ 8.000', indicador:'Avaliação 360° melhora 20%' },
+  { uuid:'t-005', cliente_id:'c-003', descricao:'Reorganização de estoque', responsavel:'Maria Souza', prazo_iso:'2026-02-28', status:'concluido', tipo:'Logística', onde:'Depósito', porque:'Reduzir perdas', como:'Kanban físico', custo:'R$ 2.000', indicador:'Quebra < 1%' },
+  { uuid:'t-006', cliente_id:'c-001', descricao:'Definir OKRs corporativos Q2', responsavel:'João Silva', prazo_iso:'2026-04-15', status:'iniciar', tipo:'Estratégia', onde:'Diretoria', porque:'Alinhamento estratégico', como:'Workshops de OKR', custo:'R$ 600', indicador:'OKRs definidos e comunicados' },
+];
+
+createApp({
+  setup() {
+    /* STATE */
+    const loading = ref(false);
+    const authenticated = ref(false);
+    const loginEmail = ref('');
+    const loginPass = ref('');
+    const loginError = ref('');
+    const currentPage = ref('dashboard');
+    const modal = ref(null);
+    const busca = ref('');
+    const diagTab = ref('lista');
+    const filtroCliente = ref('');
+    const portalClienteId = ref('');
+    const linkPortal = ref('');
+    const showPortalPreview = ref(false);
+    const tarefaSelecionada = ref(null);
+
+    const user = ref({ nome: 'Apollo Consultor', email: 'apollo@sae.app', plano: 'Pro', initials: 'AC' });
+
+    const clientes = ref([...mockClientes]);
+    const tarefas = ref([...mockTarefas]);
+
+    const form = ref({ empresa_nome:'', segmento:'Tecnologia', status:'active', responsavel:'', mensalidade:'', obs:'' });
+    const formTarefa = ref({ descricao:'', responsavel:'', prazo_iso:'', onde:'', porque:'', como:'', custo:'', indicador:'', cliente_id:'', status:'iniciar', tipo:'Processo' });
+    const formDiag = ref({ tipo:'5S', cliente_id:'' });
+
+    const clienteSelecionado = ref(null);
+
+    /* CLIENTES */
+    const clientesFiltrados = computed(() =>
+      clientes.value.filter(c => !busca.value ||
+        c.empresa_nome.toLowerCase().includes(busca.value.toLowerCase()) ||
+        c.segmento.toLowerCase().includes(busca.value.toLowerCase())
+      )
+    );
+
+    const kpis = computed(() => ({
+      clientesAtivos: clientes.value.filter(c => c.status === 'active').length,
+      roiMedio: 34.7,
+      tarefasConcluidas: tarefas.value.filter(t => t.status === 'concluido').length,
+      receita: clientes.value.filter(c=>c.status==='active').reduce((a,c)=>a+parseFloat(c.mensalidade.replace('.','').replace(',','.')),0).toLocaleString('pt-BR')
+    }));
+
+    /* DIAGNÓSTICO */
+    const diagnosticos = ref([
+      {
+        uuid: 'd-001', tipo_matriz: 'Diagnóstico 5S', icon: '🔍',
+        cliente_nome: 'TechCorp Ltda', score: 68, status: 'Concluído',
+        dimensoes: [
+          { nome: 'Organização', valor: 75, cor: '#6366f1' },
+          { nome: 'Limpeza', valor: 80, cor: '#14b8a6' },
+          { nome: 'Padronização', valor: 55, cor: '#f59e0b' },
+          { nome: 'Disciplina', valor: 62, cor: '#10b981' },
+          { nome: 'Utilização', valor: 70, cor: '#06b6d4' },
+        ]
+      },
+      {
+        uuid: 'd-002', tipo_matriz: 'Clima Organizacional', icon: '🌡️',
+        cliente_nome: 'MedSaúde SA', score: 52, status: 'Em análise',
+        dimensoes: [
+          { nome: 'Motivação', valor: 48, cor: '#f43f5e' },
+          { nome: 'Comunicação', valor: 55, cor: '#6366f1' },
+          { nome: 'Liderança', valor: 60, cor: '#14b8a6' },
+          { nome: 'Cultura', valor: 45, cor: '#f59e0b' },
+        ]
+      }
+    ]);
+
+    const questionario5S = ref([
+      { pergunta: 'Os materiais desnecessários são descartados regularmente?', resposta: 0 },
+      { pergunta: 'O local de trabalho é mantido limpo e organizado?', resposta: 0 },
+      { pergunta: 'Existem padrões visuais de organização implementados?', resposta: 0 },
+      { pergunta: 'Os colaboradores seguem os padrões estabelecidos?', resposta: 0 },
+      { pergunta: 'Há programas de melhoria contínua ativos?', resposta: 0 },
+    ]);
+
+    /* KANBAN */
+    const kanbanColunas = [
+      { id: 'iniciar', label: 'A Iniciar' },
+      { id: 'execucao', label: 'Em Execução' },
+      { id: 'validando', label: 'Validando' },
+      { id: 'concluido', label: 'Concluído' },
+    ];
+
+    const tarefasPorStatus = (status) =>
+      tarefas.value.filter(t =>
+        t.status === status &&
+        (!filtroCliente.value || t.cliente_id === filtroCliente.value)
+      );
+
+    const tarefasDoCliente = computed(() =>
+      clienteSelecionado.value
+        ? tarefas.value.filter(t => t.cliente_id === clienteSelecionado.value.uuid)
+        : []
+    );
+
+    /* FINANCEIRO */
+    const financeiro = ref({ receitaTotal: '18.500', inadimplente: '2.800', potencial: '21.300' });
+    const pagamentos = ref([
+      { uuid:'p-001', cliente:'TechCorp Ltda', valor:'3.500', vencimento:'05/03/2026', pago: true },
+      { uuid:'p-002', cliente:'MedSaúde SA', valor:'5.200', vencimento:'10/03/2026', pago: true },
+      { uuid:'p-003', cliente:'VarejoMax', valor:'2.800', vencimento:'15/03/2026', pago: false },
+      { uuid:'p-004', cliente:'IndusPro Ind.', valor:'7.000', vencimento:'01/03/2026', pago: true },
+      { uuid:'p-005', cliente:'EduFuture', valor:'1.800', vencimento:'20/03/2026', pago: false },
+    ]);
+
+    /* PORTAL */
+    const metasCliente = [
+      { nome: 'Processos mapeados', progresso: 80, cor: '#6366f1' },
+      { nome: 'Treinamentos', progresso: 60, cor: '#14b8a6' },
+      { nome: '5S implementado', progresso: 45, cor: '#f59e0b' },
+    ];
+
+    /* RELATÓRIOS */
+    const tiposRelatorio = [
+      { id:'executivo', icon:'📊', nome:'Resumo Executivo', desc:'Visão geral do projeto, KPIs e próximos passos para a diretoria.' },
+      { id:'progresso', icon:'📈', nome:'Relatório de Progresso', desc:'Detalhamento das tarefas concluídas e plano de ação atualizado.' },
+      { id:'diagnostico', icon:'🔍', nome:'Diagnóstico Completo', desc:'Análise completa com score de maturidade, SWOT e recomendações.' },
+      { id:'financeiro', icon:'💰', nome:'Relatório Financeiro', desc:'Demonstrativo de investimento e retorno do projeto de consultoria.' },
+    ];
+
+    /* CONFIG */
+    const sheetsConfig = [
+      { nome: 'consultores', cols: 'uuid · nome · email_hash · plano_saas · data_adesao' },
+      { nome: 'clientes', cols: 'uuid · consultor_id · empresa_nome · segmento · status' },
+      { nome: 'diagnosticos', cols: 'uuid · cliente_id · tipo_matriz · respostas_json · score' },
+      { nome: 'tarefas_5w2h', cols: 'uuid · cliente_id · descricao · responsavel · prazo_iso · status' },
+      { nome: 'financeiro', cols: 'uuid · cliente_id · valor_mensalidade · data_vencimento · pago' },
+    ];
+
+    /* CHARTS */
+    let radarChartInst = null;
+    let barChartInst = null;
+    let diagRadarInst = null;
+
+    function initCharts() {
+      nextTick(() => {
+        // Radar principal
+        const rCtx = document.getElementById('radarChart');
+        if (rCtx) {
+          if (radarChartInst) radarChartInst.destroy();
+          radarChartInst = new Chart(rCtx, {
+            type: 'radar',
+            data: {
+              labels: ['Processos', 'Pessoas', 'Tecnologia', 'Liderança', 'Cultura', 'Resultados'],
+              datasets: [{
+                label: 'Maturidade Média',
+                data: [68, 75, 52, 80, 61, 73],
+                fill: true,
+                backgroundColor: 'rgba(99,102,241,0.15)',
+                borderColor: '#6366f1',
+                pointBackgroundColor: '#8b5cf6',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                borderWidth: 2
+              }]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              scales: {
+                r: {
+                  min: 0, max: 100,
+                  ticks: { display: false },
+                  grid: { color: 'rgba(255,255,255,0.06)' },
+                  angleLines: { color: 'rgba(255,255,255,0.06)' },
+                  pointLabels: { color: '#94a3b8', font: { size: 11, family: 'DM Sans' } }
+                }
+              },
+              plugins: { legend: { display: false } }
+            }
+          });
+        }
+
+        // Bar chart
+        const bCtx = document.getElementById('barChart');
+        if (bCtx) {
+          if (barChartInst) barChartInst.destroy();
+          barChartInst = new Chart(bCtx, {
+            type: 'bar',
+            data: {
+              labels: ['Out', 'Nov', 'Dez', 'Jan', 'Fev', 'Mar'],
+              datasets: [
+                {
+                  label: 'Clientes', data: [3, 4, 4, 5, 5, 5],
+                  backgroundColor: 'rgba(99,102,241,0.5)', borderRadius: 6, borderSkipped: false
+                },
+                {
+                  label: 'Tarefas concluídas', data: [8, 12, 15, 18, 22, 26],
+                  backgroundColor: 'rgba(20,184,166,0.5)', borderRadius: 6, borderSkipped: false
+                }
+              ]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              plugins: {
+                legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 10 } }
+              },
+              scales: {
+                x: { grid: { display: false }, ticks: { color: '#475569' } },
+                y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#475569' } }
+              }
+            }
+          });
+        }
+
+        // Diagnóstico radar
+        const dCtx = document.getElementById('diagRadar');
+        if (dCtx) {
+          if (diagRadarInst) diagRadarInst.destroy();
+          diagRadarInst = new Chart(dCtx, {
+            type: 'radar',
+            data: {
+              labels: ['Seiri', 'Seiton', 'Seiso', 'Seiketsu', 'Shitsuke'],
+              datasets: [{
+                label: 'Resultado',
+                data: [75, 80, 55, 62, 70],
+                fill: true,
+                backgroundColor: 'rgba(20,184,166,0.15)',
+                borderColor: '#14b8a6',
+                pointBackgroundColor: '#14b8a6',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                borderWidth: 2
+              }]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              scales: {
+                r: {
+                  min: 0, max: 100,
+                  ticks: { display: false },
+                  grid: { color: 'rgba(255,255,255,0.06)' },
+                  angleLines: { color: 'rgba(255,255,255,0.06)' },
+                  pointLabels: { color: '#94a3b8', font: { size: 11 } }
+                }
+              },
+              plugins: { legend: { display: false } }
+            }
+          });
+        }
+      });
+    }
+
+    /* NAVIGATION */
+    const pageTitle = computed(() => {
+      const map = {
+        dashboard: '📊 Dashboard de Governança',
+        clientes: '🏢 Gestão de Clientes',
+        diagnostico: '🔍 Módulo de Diagnóstico',
+        projetos: '📋 Projetos & Planos de Ação (5W2H)',
+        financeiro: '💰 Controle Financeiro',
+        portal: '🌐 Portal do Cliente',
+        relatorios: '📄 Central de Relatórios',
+        configuracoes: '⚙️ Configurações',
+      };
+      return map[currentPage.value] || 'SAE';
+    });
+
+    function navigate(page) {
+      loading.value = true;
+      setTimeout(() => {
+        currentPage.value = page;
+        loading.value = false;
+        if (page === 'dashboard' || page === 'diagnostico') {
+          setTimeout(initCharts, 100);
+        }
+      }, 400);
+    }
+
+    function selectCliente(c) { clienteSelecionado.value = c; }
+
+    /* AUTH */
+    function doLogin() {
+      if (!loginEmail.value || !loginPass.value) {
+        loginError.value = 'Preencha todos os campos'; return;
+      }
+      loading.value = true;
+      // Simula chamada google.script.run.autenticarConsultor()
+      setTimeout(() => {
+        loading.value = false;
+        authenticated.value = true;
+        setTimeout(initCharts, 300);
+      }, 1200);
+    }
+
+    function demoLogin() {
+      loginEmail.value = 'apollo@demo.com';
+      loginPass.value = 'demo123';
+      doLogin();
+    }
+
+    function doLogout() {
+      authenticated.value = false;
+      loginEmail.value = ''; loginPass.value = '';
+    }
+
+    /* MODAIS */
+    function openModal(name, data = null) {
+      modal.value = name;
+      if (name === 'verTarefa' && data) tarefaSelecionada.value = data;
+      if (name === 'novaTarefa' && data?.status) formTarefa.value.status = data.status;
+    }
+    function closeModal() {
+      modal.value = null;
+      tarefaSelecionada.value = null;
+    }
+
+    /* CRUD */
+    function salvarCliente() {
+      loading.value = true;
+      // Em produção: google.script.run.salvarCliente(form.value)
+      setTimeout(() => {
+        const novo = {
+          uuid: 'c-' + Date.now(),
+          ...form.value,
+          maturidade: 10,
+          tarefas_abertas: 0
+        };
+        clientes.value.push(novo);
+        form.value = { empresa_nome:'', segmento:'Tecnologia', status:'active', responsavel:'', mensalidade:'', obs:'' };
+        loading.value = false;
+        closeModal();
+      }, 600);
+    }
+
+    function salvarTarefa() {
+      loading.value = true;
+      setTimeout(() => {
+        const nova = { uuid: 't-' + Date.now(), ...formTarefa.value };
+        tarefas.value.push(nova);
+        formTarefa.value = { descricao:'', responsavel:'', prazo_iso:'', onde:'', porque:'', como:'', custo:'', indicador:'', cliente_id:'', status:'iniciar', tipo:'Processo' };
+        loading.value = false;
+        closeModal();
+      }, 500);
+    }
+
+    function atualizarTarefa() {
+      loading.value = true;
+      setTimeout(() => { loading.value = false; closeModal(); }, 400);
+    }
+
+    function excluirTarefa(t) {
+      tarefas.value = tarefas.value.filter(x => x.uuid !== t.uuid);
+      closeModal();
+    }
+
+    function salvarDiagnostico() {
+      loading.value = true;
+      setTimeout(() => {
+        const score = Math.round(questionario5S.value.reduce((a, q) => a + (q.resposta || 0), 0) / (questionario5S.value.length * 5) * 100);
+        alert(`Score calculado: ${score}% · Diagnóstico salvo no Google Sheets`);
+        loading.value = false;
+        diagTab.value = 'resultados';
+        setTimeout(initCharts, 200);
+      }, 800);
+    }
+
+    function criarDiagnostico() {
+      closeModal();
+      diagTab.value = 'responder';
+    }
+
+    function marcarPago(p) {
+      p.pago = true;
+    }
+
+    /* PORTAL */
+    function gerarLinkPortal() {
+      if (!portalClienteId.value) return;
+      const c = clientes.value.find(x => x.uuid === portalClienteId.value);
+      clienteSelecionado.value = c;
+      linkPortal.value = `https://script.google.com/macros/s/AKfycb.../exec?token=${btoa(portalClienteId.value)}&consultor=${user.value.email}`;
+    }
+
+    function verPreviewPortal() {
+      if (!clienteSelecionado.value && clientes.value.length) {
+        clienteSelecionado.value = clientes.value[0];
+      }
+      showPortalPreview.value = !showPortalPreview.value;
+    }
+
+    function gerarRelatorio() {
+      loading.value = true;
+      // Em produção: google.script.run.gerarRelatorioPDF(clienteSelecionado.value.uuid)
+      setTimeout(() => {
+        loading.value = false;
+        alert('Relatório PDF gerado via Google Apps Script HtmlService!\n\nEm produção, o arquivo seria disponibilizado para download automático.');
+      }, 1500);
+    }
+
+    function gerarRelatorioTipo(r) {
+      loading.value = true;
+      setTimeout(() => {
+        loading.value = false;
+        alert(`Relatório "${r.nome}" gerado!\n\nEm produção: google.script.run.gerarPDF("${r.id}", consultor_id)`);
+      }, 1200);
+    }
+
+    function runSetup() {
+      loading.value = true;
+      // Em produção: google.script.run.setupSpreadsheet()
+      setTimeout(() => {
+        loading.value = false;
+        alert('Setup executado!\n\nAbas criadas no Google Sheets:\n• consultores\n• clientes\n• diagnosticos\n• tarefas_5w2h\n• financeiro');
+      }, 1500);
+    }
+
+    /* HELPERS */
+    function formatDate(iso) {
+      if (!iso) return '—';
+      const d = new Date(iso + 'T00:00:00');
+      return d.toLocaleDateString('pt-BR');
+    }
+
+    function isOverdue(iso) {
+      if (!iso) return false;
+      return new Date(iso) < new Date();
+    }
+
+    function campos5W2H(t) {
+      return [
+        { label: '🔴 O QUE (What)', valor: t.descricao },
+        { label: '👤 QUEM (Who)', valor: t.responsavel },
+        { label: '📅 QUANDO (When)', valor: formatDate(t.prazo_iso) },
+        { label: '📍 ONDE (Where)', valor: t.onde },
+        { label: '❓ POR QUÊ (Why)', valor: t.porque },
+        { label: '⚙️ COMO (How)', valor: t.como },
+        { label: '💰 QUANTO CUSTA', valor: t.custo },
+        { label: '📊 COMO MEDIR', valor: t.indicador },
+      ];
+    }
+
+    onMounted(() => {
+      // Em produção, verificar sessão com:
+      // google.script.run.withSuccessHandler(onAuthCheck).verificarSessao()
+    });
+
+    return {
+      loading, authenticated, loginEmail, loginPass, loginError,
+      currentPage, pageTitle, modal, busca, diagTab, filtroCliente,
+      portalClienteId, linkPortal, showPortalPreview, tarefaSelecionada,
+      user, clientes, tarefas, form, formTarefa, formDiag,
+      clienteSelecionado, clientesFiltrados, kpis, diagnosticos,
+      questionario5S, kanbanColunas, tarefasPorStatus, tarefasDoCliente,
+      financeiro, pagamentos, metasCliente, tiposRelatorio, sheetsConfig,
+      navigate, selectCliente, doLogin, demoLogin, doLogout,
+      openModal, closeModal,
+      salvarCliente, salvarTarefa, atualizarTarefa, excluirTarefa,
+      salvarDiagnostico, criarDiagnostico, marcarPago,
+      gerarLinkPortal, verPreviewPortal, gerarRelatorio,
+      gerarRelatorioTipo, runSetup,
+      formatDate, isOverdue, campos5W2H
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

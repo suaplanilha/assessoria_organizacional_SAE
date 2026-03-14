@@ -1,0 +1,1147 @@
+/**
+ * ============================================================
+ * SAE — Sistema Apollo Enterprise
+ * Backend: Google Apps Script (V8 Engine)
+ * Banco de Dados: Google Sheets (NoSQL Multi-tenant)
+ * ============================================================
+ *
+ * INSTRUÇÕES DE DEPLOY:
+ * 1. Acesse: script.google.com → Novo Projeto
+ * 2. Cole este código no editor
+ * 3. Execute setupSpreadsheet() uma vez para criar as abas
+ * 4. Implante como Web App:
+ *    - Executar como: Usuário acessando o app
+ *    - Acesso: Qualquer pessoa (ou somente eu, para MVP)
+ * 5. Copie a URL do Web App e use na variável WEBAPP_URL do frontend
+ *
+ * COMUNICAÇÃO FRONTEND → BACKEND:
+ * SEMPRE usar google.script.run (NUNCA fetch/XHR por causa do CORS)
+ *
+ * Exemplo no frontend:
+ *   google.script.run
+ *     .withSuccessHandler(callback)
+ *     .withFailureHandler(errorCallback)
+ *     .salvarCliente(dadosCliente);
+ * ============================================================
+ */
+
+// ============================================================
+// CONFIGURAÇÃO GLOBAL
+// ============================================================
+
+const SPREADSHEET_ID = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '';
+const SECRET_SALT    = PropertiesService.getScriptProperties().getProperty('SECRET_SALT') || 'sae_apollo_2026_salt';
+
+/**
+ * Retorna o Spreadsheet ativo (ou cria um novo se não configurado)
+ */
+function getSpreadsheet() {
+  if (SPREADSHEET_ID) {
+    return SpreadsheetApp.openById(SPREADSHEET_ID);
+  }
+  // Fallback: usa o spreadsheet vinculado ao script
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+
+// ============================================================
+// PONTO DE ENTRADA — WEB APP
+// ============================================================
+
+/**
+ * GET — Serve o HTML do frontend
+ */
+function doGet(e) {
+  const page = e.parameter.page || 'app';
+
+  if (page === 'portal') {
+    // Portal do cliente via token
+    return servirPortalCliente(e.parameter.token, e.parameter.consultor);
+  }
+
+  const template = HtmlService.createTemplateFromFile('index');
+  return template.evaluate()
+    .setTitle('SAE — Sistema Apollo Enterprise')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+}
+
+/**
+ * POST — Endpoint alternativo (não necessário com google.script.run)
+ */
+function doPost(e) {
+  const data = JSON.parse(e.postData.contents);
+  return ContentService.createTextOutput(
+    JSON.stringify({ status: 'ok', data: processarPost(data) })
+  ).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ============================================================
+// SETUP — CRIAÇÃO DAS ABAS (rodar UMA VEZ)
+// ============================================================
+
+/**
+ * Cria todas as abas do banco de dados com os headers corretos.
+ * Execute via: Executar → setupSpreadsheet
+ */
+function setupSpreadsheet() {
+  const ss = getSpreadsheet();
+
+  const SHEETS = {
+    consultores: [
+      'uuid', 'nome', 'email', 'email_hash', 'plano_saas',
+      'data_adesao', 'ativo', 'configuracoes_json'
+    ],
+    clientes: [
+      'uuid', 'consultor_id', 'empresa_nome', 'segmento',
+      'responsavel', 'email_contato', 'telefone', 'status',
+      'mensalidade', 'data_inicio', 'maturidade', 'obs', 'created_at'
+    ],
+    diagnosticos: [
+      'uuid', 'cliente_id', 'consultor_id', 'tipo_matriz',
+      'respostas_json', 'score', 'dimensoes_json', 'observacoes',
+      'created_at', 'status'
+    ],
+    tarefas_5w2h: [
+      'uuid', 'cliente_id', 'consultor_id',
+      'descricao',      // WHAT
+      'responsavel',    // WHO
+      'prazo_iso',      // WHEN
+      'onde',           // WHERE
+      'porque',         // WHY
+      'como',           // HOW
+      'custo',          // HOW MUCH
+      'indicador',      // HOW TO MEASURE
+      'status', 'tipo', 'evidencia', 'created_at', 'updated_at'
+    ],
+    financeiro: [
+      'uuid', 'cliente_id', 'consultor_id',
+      'valor_mensalidade', 'data_vencimento', 'data_pagamento',
+      'pago', 'metodo_pagamento', 'obs', 'created_at'
+    ],
+    sessoes: [
+      'token', 'consultor_id', 'email_hash', 'created_at', 'expires_at', 'ativo'
+    ]
+  };
+
+  const existentes = ss.getSheets().map(s => s.getName());
+
+  for (const [nome, headers] of Object.entries(SHEETS)) {
+    let sheet;
+    if (existentes.includes(nome)) {
+      sheet = ss.getSheetByName(nome);
+      Logger.log(`Aba "${nome}" já existe — preservando dados.`);
+    } else {
+      sheet = ss.insertSheet(nome);
+      Logger.log(`Aba "${nome}" criada.`);
+    }
+
+    // Verifica se headers já foram escritos
+    const firstRow = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+    if (!firstRow[0]) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      // Formata header
+      sheet.getRange(1, 1, 1, headers.length)
+        .setBackground('#1e293b')
+        .setFontColor('#94a3b8')
+        .setFontWeight('bold')
+        .setFontSize(10);
+      sheet.setFrozenRows(1);
+    }
+  }
+
+  // Salva o ID da planilha nas propriedades
+  PropertiesService.getScriptProperties()
+    .setProperty('SPREADSHEET_ID', ss.getId());
+
+  Logger.log('Setup concluído! Spreadsheet ID: ' + ss.getId());
+  return { status: 'ok', message: 'Setup completo', spreadsheetId: ss.getId() };
+}
+
+// ============================================================
+// AUTENTICAÇÃO — SHA-256 Multi-tenant
+// ============================================================
+
+/**
+ * Gera hash SHA-256 do email (segurança básica)
+ * @param {string} email
+ * @returns {string} hash hexadecimal
+ */
+function hashEmail(email) {
+  const raw = (email.toLowerCase().trim() + SECRET_SALT);
+  const digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    raw,
+    Utilities.Charset.UTF_8
+  );
+  return digest.map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
+}
+
+/**
+ * Gera UUID v4
+ */
+function gerarUUID() {
+  return Utilities.getUuid();
+}
+
+/**
+ * Autentica o consultor via email + senha
+ * Retorna token de sessão ou null se inválido
+ *
+ * No frontend:
+ *   google.script.run
+ *     .withSuccessHandler(onLoginSuccess)
+ *     .autenticarConsultor({ email: '...', senha: '...' })
+ */
+function autenticarConsultor(dados) {
+  try {
+    const { email, senha } = dados;
+    if (!email || !senha) return { sucesso: false, erro: 'Campos obrigatórios' };
+
+    const emailHash = hashEmail(email);
+    const senhaHash = hashEmail(senha); // senha também hasheada
+
+    const sheet = getSpreadsheet().getSheetByName('consultores');
+    const rows = sheet.getDataRange().getValues();
+    const headers = rows[0];
+    const idxHash = headers.indexOf('email_hash');
+    const idxUUID = headers.indexOf('uuid');
+    const idxNome = headers.indexOf('nome');
+    const idxPlano = headers.indexOf('plano_saas');
+    const idxAtivo = headers.indexOf('ativo');
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      // Compara email_hash
+      if (row[idxHash] === emailHash && row[idxAtivo] === true) {
+        const consultor = {
+          uuid: row[idxUUID],
+          nome: row[idxNome],
+          email: email,
+          plano: row[idxPlano],
+        };
+        // Gera token de sessão
+        const token = criarSessao(consultor.uuid, emailHash);
+        return { sucesso: true, consultor, token };
+      }
+    }
+
+    // Para MVP: auto-cadastro no primeiro login
+    return autoCadastrarConsultor(email, emailHash);
+
+  } catch (err) {
+    Logger.log('Erro autenticarConsultor: ' + err);
+    return { sucesso: false, erro: 'Erro interno: ' + err.message };
+  }
+}
+
+/**
+ * Auto-cadastra consultor no primeiro acesso (MVP)
+ */
+function autoCadastrarConsultor(email, emailHash) {
+  const sheet = getSpreadsheet().getSheetByName('consultores');
+  const uuid = gerarUUID();
+  const nome = email.split('@')[0].replace(/[^a-zA-Z]/g, ' ').trim();
+
+  sheet.appendRow([
+    uuid,
+    nome.charAt(0).toUpperCase() + nome.slice(1),
+    email,
+    emailHash,
+    'Pro',
+    new Date().toISOString(),
+    true,
+    JSON.stringify({ tema: 'dark', notificacoes: true })
+  ]);
+
+  const token = criarSessao(uuid, emailHash);
+  return {
+    sucesso: true,
+    consultor: { uuid, nome, email, plano: 'Pro' },
+    token,
+    mensagem: 'Conta criada automaticamente'
+  };
+}
+
+/**
+ * Cria sessão (token) para o consultor
+ */
+function criarSessao(consultorId, emailHash) {
+  const sheet = getSpreadsheet().getSheetByName('sessoes');
+  const token = Utilities.base64Encode(
+    gerarUUID() + ':' + consultorId + ':' + new Date().getTime()
+  );
+  const expira = new Date();
+  expira.setDate(expira.getDate() + 7); // 7 dias
+
+  sheet.appendRow([
+    token, consultorId, emailHash,
+    new Date().toISOString(), expira.toISOString(), true
+  ]);
+
+  return token;
+}
+
+/**
+ * Verifica se token de sessão é válido
+ * Retorna consultorId ou null
+ */
+function verificarSessao(token) {
+  if (!token) return null;
+  try {
+    const sheet = getSpreadsheet().getSheetByName('sessoes');
+    const rows = sheet.getDataRange().getValues();
+    const headers = rows[0];
+    const idxToken    = headers.indexOf('token');
+    const idxConsId   = headers.indexOf('consultor_id');
+    const idxExpires  = headers.indexOf('expires_at');
+    const idxAtivo    = headers.indexOf('ativo');
+
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idxToken] === token && rows[i][idxAtivo] === true) {
+        const expira = new Date(rows[i][idxExpires]);
+        if (expira > new Date()) return rows[i][idxConsId];
+      }
+    }
+    return null;
+  } catch (err) {
+    return null;
+  }
+}
+
+// ============================================================
+// UTILITÁRIO: Leitura genérica de sheet → array de objetos
+// ============================================================
+
+/**
+ * Converte uma aba em array de objetos (headers como chaves)
+ * @param {Sheet} sheet
+ * @param {Object} filtros - ex: { consultor_id: 'uuid-...' }
+ */
+function sheetParaObjetos(sheet, filtros = {}) {
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  const headers = data[0];
+  const rows = data.slice(1);
+
+  return rows
+    .map(row => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = row[i]; });
+      return obj;
+    })
+    .filter(obj => {
+      // Filtra por critérios (multi-tenant)
+      for (const [k, v] of Object.entries(filtros)) {
+        if (obj[k] !== v) return false;
+      }
+      return obj.uuid; // ignora linhas vazias
+    });
+}
+
+/**
+ * Encontra a linha pelo UUID
+ */
+function encontrarLinha(sheet, uuid) {
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const idxUUID = headers.indexOf('uuid');
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][idxUUID] === uuid) return { row: i + 1, headers, data: data[i] };
+  }
+  return null;
+}
+
+// ============================================================
+// MÓDULO: CLIENTES
+// ============================================================
+
+/**
+ * Busca todos os clientes do consultor
+ * Multi-tenant: filtra por consultor_id
+ */
+function listarClientes(token) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return { erro: 'Sessão inválida' };
+
+  const sheet = getSpreadsheet().getSheetByName('clientes');
+  const clientes = sheetParaObjetos(sheet, { consultor_id: consultorId });
+  return { sucesso: true, clientes };
+}
+
+/**
+ * Cria ou atualiza um cliente
+ */
+function salvarCliente(token, dadosCliente) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return { erro: 'Sessão inválida' };
+
+  const sheet = getSpreadsheet().getSheetByName('clientes');
+  const agora = new Date().toISOString();
+
+  if (dadosCliente.uuid) {
+    // UPDATE
+    const linha = encontrarLinha(sheet, dadosCliente.uuid);
+    if (!linha) return { erro: 'Cliente não encontrado' };
+
+    const headers = linha.headers;
+    const rowIdx  = linha.row;
+
+    // Atualiza campo por campo
+    for (const [k, v] of Object.entries(dadosCliente)) {
+      const col = headers.indexOf(k) + 1;
+      if (col > 0) sheet.getRange(rowIdx, col).setValue(v);
+    }
+    sheet.getRange(rowIdx, headers.indexOf('updated_at') + 1).setValue(agora);
+    return { sucesso: true, uuid: dadosCliente.uuid, acao: 'atualizado' };
+  } else {
+    // INSERT
+    const uuid = gerarUUID();
+    sheet.appendRow([
+      uuid,
+      consultorId,
+      dadosCliente.empresa_nome || '',
+      dadosCliente.segmento || '',
+      dadosCliente.responsavel || '',
+      dadosCliente.email_contato || '',
+      dadosCliente.telefone || '',
+      dadosCliente.status || 'active',
+      dadosCliente.mensalidade || 0,
+      dadosCliente.data_inicio || agora,
+      dadosCliente.maturidade || 0,
+      dadosCliente.obs || '',
+      agora
+    ]);
+    return { sucesso: true, uuid, acao: 'criado' };
+  }
+}
+
+/**
+ * Exclui um cliente (soft delete: altera status para 'deleted')
+ */
+function excluirCliente(token, clienteUUID) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return { erro: 'Sessão inválida' };
+
+  const sheet = getSpreadsheet().getSheetByName('clientes');
+  const linha = encontrarLinha(sheet, clienteUUID);
+  if (!linha) return { erro: 'Cliente não encontrado' };
+
+  // Verifica isolamento multi-tenant
+  const headers = linha.headers;
+  const idxConsultor = headers.indexOf('consultor_id');
+  if (linha.data[idxConsultor] !== consultorId) return { erro: 'Acesso negado' };
+
+  const idxStatus = headers.indexOf('status') + 1;
+  sheet.getRange(linha.row, idxStatus).setValue('deleted');
+  return { sucesso: true };
+}
+
+// ============================================================
+// MÓDULO: DIAGNÓSTICOS
+// ============================================================
+
+/**
+ * Lista diagnósticos do consultor (ou de um cliente específico)
+ */
+function listarDiagnosticos(token, clienteId = null) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return { erro: 'Sessão inválida' };
+
+  const sheet = getSpreadsheet().getSheetByName('diagnosticos');
+  const filtros = { consultor_id: consultorId };
+  if (clienteId) filtros.cliente_id = clienteId;
+
+  const diagnosticos = sheetParaObjetos(sheet, filtros).map(d => {
+    // Parseia JSON das respostas e dimensões
+    try { d.respostas = JSON.parse(d.respostas_json || '{}'); } catch(e) { d.respostas = {}; }
+    try { d.dimensoes = JSON.parse(d.dimensoes_json || '[]'); } catch(e) { d.dimensoes = []; }
+    return d;
+  });
+
+  return { sucesso: true, diagnosticos };
+}
+
+/**
+ * Salva um diagnóstico e calcula o score automaticamente
+ */
+function salvarDiagnostico(token, dados) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return { erro: 'Sessão inválida' };
+
+  const sheet = getSpreadsheet().getSheetByName('diagnosticos');
+  const agora = new Date().toISOString();
+
+  // Calcula score baseado nas respostas
+  const { score, dimensoes } = calcularScore(dados.tipo_matriz, dados.respostas);
+
+  if (dados.uuid) {
+    // UPDATE
+    const linha = encontrarLinha(sheet, dados.uuid);
+    if (!linha) return { erro: 'Diagnóstico não encontrado' };
+    const headers = linha.headers;
+    sheet.getRange(linha.row, headers.indexOf('respostas_json') + 1).setValue(JSON.stringify(dados.respostas));
+    sheet.getRange(linha.row, headers.indexOf('score') + 1).setValue(score);
+    sheet.getRange(linha.row, headers.indexOf('dimensoes_json') + 1).setValue(JSON.stringify(dimensoes));
+    sheet.getRange(linha.row, headers.indexOf('status') + 1).setValue('concluido');
+    return { sucesso: true, score, dimensoes };
+  } else {
+    // INSERT
+    const uuid = gerarUUID();
+    sheet.appendRow([
+      uuid,
+      dados.cliente_id,
+      consultorId,
+      dados.tipo_matriz,
+      JSON.stringify(dados.respostas || {}),
+      score,
+      JSON.stringify(dimensoes),
+      dados.observacoes || '',
+      agora,
+      'concluido'
+    ]);
+    return { sucesso: true, uuid, score, dimensoes };
+  }
+}
+
+/**
+ * Calcula score de maturidade por tipo de matriz
+ */
+function calcularScore(tipoMatriz, respostas) {
+  const scores = Object.values(respostas).filter(v => typeof v === 'number');
+  if (!scores.length) return { score: 0, dimensoes: [] };
+
+  const max = 5; // escala de 1-5
+  const score = Math.round(scores.reduce((a, b) => a + b, 0) / (scores.length * max) * 100);
+
+  // Dimensões por tipo de diagnóstico
+  const matrizes = {
+    '5S': ['Seiri (Utilização)', 'Seiton (Organização)', 'Seiso (Limpeza)', 'Seiketsu (Padronização)', 'Shitsuke (Disciplina)'],
+    'SWOT': ['Forças', 'Fraquezas', 'Oportunidades', 'Ameaças'],
+    'Clima Organizacional': ['Motivação', 'Comunicação', 'Liderança', 'Cultura', 'Bem-estar'],
+    'Processos': ['Mapeamento', 'Padronização', 'Controle', 'Melhoria', 'Automatização'],
+    'Liderança': ['Visão', 'Comunicação', 'Delegação', 'Desenvolvimento', 'Resultados'],
+  };
+
+  const dimensaoNomes = matrizes[tipoMatriz] || ['D1', 'D2', 'D3', 'D4', 'D5'];
+  const valoresArr = Object.values(respostas).filter(v => typeof v === 'number');
+
+  const dimensoes = dimensaoNomes.map((nome, i) => ({
+    nome,
+    valor: valoresArr[i] ? Math.round(valoresArr[i] / max * 100) : 0
+  }));
+
+  return { score, dimensoes };
+}
+
+// ============================================================
+// MÓDULO: TAREFAS 5W2H
+// ============================================================
+
+/**
+ * Lista tarefas do consultor
+ */
+function listarTarefas(token, clienteId = null) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return { erro: 'Sessão inválida' };
+
+  const sheet = getSpreadsheet().getSheetByName('tarefas_5w2h');
+  const filtros = { consultor_id: consultorId };
+  if (clienteId) filtros.cliente_id = clienteId;
+
+  const tarefas = sheetParaObjetos(sheet, filtros)
+    .filter(t => t.status !== 'deleted');
+
+  return { sucesso: true, tarefas };
+}
+
+/**
+ * Cria ou atualiza tarefa 5W2H
+ */
+function salvarTarefa(token, dados) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return { erro: 'Sessão inválida' };
+
+  const sheet = getSpreadsheet().getSheetByName('tarefas_5w2h');
+  const agora = new Date().toISOString();
+
+  if (dados.uuid) {
+    const linha = encontrarLinha(sheet, dados.uuid);
+    if (!linha) return { erro: 'Tarefa não encontrada' };
+
+    // Validação multi-tenant
+    if (linha.data[linha.headers.indexOf('consultor_id')] !== consultorId) {
+      return { erro: 'Acesso negado' };
+    }
+
+    const headers = linha.headers;
+    const campos = ['descricao','responsavel','prazo_iso','onde','porque','como','custo','indicador','status','tipo','evidencia'];
+    campos.forEach(c => {
+      if (dados[c] !== undefined) {
+        sheet.getRange(linha.row, headers.indexOf(c) + 1).setValue(dados[c]);
+      }
+    });
+    sheet.getRange(linha.row, headers.indexOf('updated_at') + 1).setValue(agora);
+    return { sucesso: true, uuid: dados.uuid, acao: 'atualizado' };
+  } else {
+    const uuid = gerarUUID();
+    sheet.appendRow([
+      uuid,
+      dados.cliente_id,
+      consultorId,
+      dados.descricao || '',
+      dados.responsavel || '',
+      dados.prazo_iso || '',
+      dados.onde || '',
+      dados.porque || '',
+      dados.como || '',
+      dados.custo || '',
+      dados.indicador || '',
+      dados.status || 'iniciar',
+      dados.tipo || 'Processo',
+      dados.evidencia || '',
+      agora,
+      agora
+    ]);
+    return { sucesso: true, uuid, acao: 'criado' };
+  }
+}
+
+/**
+ * Move tarefa no Kanban (atualiza status)
+ */
+function moverTarefa(token, tarefaUUID, novoStatus) {
+  const statusValidos = ['iniciar', 'execucao', 'validando', 'concluido'];
+  if (!statusValidos.includes(novoStatus)) return { erro: 'Status inválido' };
+
+  return salvarTarefa(token, { uuid: tarefaUUID, status: novoStatus });
+}
+
+/**
+ * Adiciona evidência de conclusão
+ */
+function adicionarEvidencia(token, tarefaUUID, evidencia) {
+  return salvarTarefa(token, {
+    uuid: tarefaUUID,
+    evidencia: evidencia,
+    status: 'validando'
+  });
+}
+
+// ============================================================
+// MÓDULO: FINANCEIRO
+// ============================================================
+
+/**
+ * Lista registros financeiros
+ */
+function listarFinanceiro(token, clienteId = null) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return { erro: 'Sessão inválida' };
+
+  const sheet = getSpreadsheet().getSheetByName('financeiro');
+  const filtros = { consultor_id: consultorId };
+  if (clienteId) filtros.cliente_id = clienteId;
+
+  const registros = sheetParaObjetos(sheet, filtros);
+
+  // Calcula totais
+  const pago = registros.filter(r => r.pago === true || r.pago === 'TRUE');
+  const pendente = registros.filter(r => r.pago !== true && r.pago !== 'TRUE');
+
+  const totalPago = pago.reduce((acc, r) => acc + (parseFloat(r.valor_mensalidade) || 0), 0);
+  const totalPendente = pendente.reduce((acc, r) => acc + (parseFloat(r.valor_mensalidade) || 0), 0);
+
+  return {
+    sucesso: true,
+    registros,
+    resumo: {
+      totalPago: totalPago.toFixed(2),
+      totalPendente: totalPendente.toFixed(2),
+      totalGeral: (totalPago + totalPendente).toFixed(2),
+      qtdClientes: new Set(registros.map(r => r.cliente_id)).size
+    }
+  };
+}
+
+/**
+ * Registra pagamento de mensalidade
+ */
+function registrarMensalidade(token, dados) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return { erro: 'Sessão inválida' };
+
+  const sheet = getSpreadsheet().getSheetByName('financeiro');
+  const agora = new Date().toISOString();
+
+  if (dados.uuid) {
+    // Marcar como pago
+    const linha = encontrarLinha(sheet, dados.uuid);
+    if (!linha) return { erro: 'Registro não encontrado' };
+    const headers = linha.headers;
+    sheet.getRange(linha.row, headers.indexOf('pago') + 1).setValue(true);
+    sheet.getRange(linha.row, headers.indexOf('data_pagamento') + 1).setValue(agora);
+    if (dados.metodo) {
+      sheet.getRange(linha.row, headers.indexOf('metodo_pagamento') + 1).setValue(dados.metodo);
+    }
+    return { sucesso: true };
+  } else {
+    // Novo registro
+    const uuid = gerarUUID();
+    sheet.appendRow([
+      uuid,
+      dados.cliente_id,
+      consultorId,
+      dados.valor_mensalidade || 0,
+      dados.data_vencimento || agora,
+      dados.pago ? agora : '',
+      dados.pago || false,
+      dados.metodo_pagamento || '',
+      dados.obs || '',
+      agora
+    ]);
+    return { sucesso: true, uuid };
+  }
+}
+
+// ============================================================
+// MÓDULO: PORTAL DO CLIENTE
+// ============================================================
+
+/**
+ * Serve o HTML do portal do cliente
+ * Acesso via: ?page=portal&token=BASE64TOKEN&consultor=email
+ */
+function servirPortalCliente(tokenCliente, consultorEmail) {
+  if (!tokenCliente) {
+    return HtmlService.createHtmlOutput('<h2>Link inválido</h2>');
+  }
+
+  try {
+    const clienteId = Utilities.newBlob(
+      Utilities.base64Decode(tokenCliente)
+    ).getDataAsString();
+
+    const dados = getDadosPortalCliente(clienteId);
+    if (!dados) return HtmlService.createHtmlOutput('<h2>Cliente não encontrado</h2>');
+
+    const html = gerarHTMLPortalCliente(dados);
+    return HtmlService.createHtmlOutput(html)
+      .setTitle('Portal — ' + dados.empresa_nome)
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  } catch (err) {
+    return HtmlService.createHtmlOutput('<h2>Erro: ' + err.message + '</h2>');
+  }
+}
+
+/**
+ * Busca dados completos de um cliente para o portal
+ */
+function getDadosPortalCliente(clienteId) {
+  const ssClientes = getSpreadsheet().getSheetByName('clientes');
+  const clientes = sheetParaObjetos(ssClientes);
+  const cliente = clientes.find(c => c.uuid === clienteId);
+  if (!cliente) return null;
+
+  const ssTarefas = getSpreadsheet().getSheetByName('tarefas_5w2h');
+  const tarefas = sheetParaObjetos(ssTarefas, { cliente_id: clienteId });
+
+  const ssDiag = getSpreadsheet().getSheetByName('diagnosticos');
+  const diagnosticos = sheetParaObjetos(ssDiag, { cliente_id: clienteId });
+
+  return { cliente, tarefas, diagnosticos };
+}
+
+/**
+ * Gera HTML limpo para o portal do cliente
+ */
+function gerarHTMLPortalCliente(dados) {
+  const { cliente, tarefas, diagnosticos } = dados;
+
+  const concluidas = tarefas.filter(t => t.status === 'concluido').length;
+  const progresso = tarefas.length > 0 ? Math.round(concluidas / tarefas.length * 100) : 0;
+
+  const tarefasHTML = tarefas.slice(0, 10).map(t => `
+    <tr>
+      <td>${t.descricao}</td>
+      <td>${t.responsavel}</td>
+      <td>${t.prazo_iso ? new Date(t.prazo_iso).toLocaleDateString('pt-BR') : '—'}</td>
+      <td><span class="badge badge-${t.status}">${t.status}</span></td>
+    </tr>
+  `).join('');
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portal — ${cliente.empresa_nome}</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #f1f5f9; margin: 0; padding: 20px; }
+  .container { max-width: 800px; margin: 0 auto; }
+  .header { text-align: center; padding: 40px 20px; background: rgba(99,102,241,0.1); border-radius: 16px; margin-bottom: 24px; }
+  .company { font-size: 28px; font-weight: 800; }
+  .card { background: rgba(30,41,59,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .progress-bar { height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; margin-top: 8px; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, #6366f1, #8b5cf6); border-radius: 4px; }
+  .score { font-size: 48px; font-weight: 800; color: #6366f1; text-align: center; }
+  table { width: 100%; border-collapse: collapse; }
+  th { padding: 8px; text-align: left; font-size: 11px; color: #64748b; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  td { padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 13px; color: #94a3b8; }
+  .badge { padding: 3px 8px; border-radius: 12px; font-size: 10px; font-weight: 700; }
+  .badge-concluido { background: rgba(16,185,129,0.2); color: #10b981; }
+  .badge-execucao { background: rgba(99,102,241,0.2); color: #6366f1; }
+  .badge-iniciar { background: rgba(148,163,184,0.1); color: #64748b; }
+  .badge-validando { background: rgba(245,158,11,0.2); color: #f59e0b; }
+  footer { text-align: center; color: #334155; font-size: 11px; margin-top: 40px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div style="font-size:36px;margin-bottom:8px;">🏢</div>
+    <div class="company">${cliente.empresa_nome}</div>
+    <div style="color:#64748b;margin-top:6px;">Painel de Progresso · Consultoria Organizacional</div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 16px;font-size:16px;">📈 Progresso Geral</h3>
+    <div class="score">${cliente.maturidade || progresso}%</div>
+    <p style="text-align:center;color:#64748b;margin-top:4px;">Maturidade Organizacional</p>
+    <div class="progress-bar">
+      <div class="progress-fill" style="width:${cliente.maturidade || progresso}%"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:16px;font-size:12px;color:#64748b;">
+      <span>✅ ${concluidas} concluídas</span>
+      <span>📋 ${tarefas.length} tarefas total</span>
+      <span>⏳ ${tarefas.length - concluidas} pendentes</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 16px;font-size:16px;">📋 Plano de Ação</h3>
+    <table>
+      <thead><tr><th>Ação</th><th>Responsável</th><th>Prazo</th><th>Status</th></tr></thead>
+      <tbody>${tarefasHTML}</tbody>
+    </table>
+  </div>
+
+  <footer>
+    Gerado por SAE — Sistema Apollo Enterprise · ${new Date().toLocaleDateString('pt-BR')}
+  </footer>
+</div>
+</body>
+</html>`;
+}
+
+// ============================================================
+// MÓDULO: RELATÓRIOS (PDF via HtmlService)
+// ============================================================
+
+/**
+ * Gera relatório HTML otimizado para PDF
+ * No frontend: google.script.run.gerarRelatorio(token, clienteId, tipo)
+ * O retorno é uma URL de blob ou o HTML para impressão
+ */
+function gerarRelatorio(token, clienteId, tipo) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return { erro: 'Sessão inválida' };
+
+  const dados = getDadosPortalCliente(clienteId);
+  if (!dados) return { erro: 'Cliente não encontrado' };
+
+  // Gera HTML do relatório baseado no tipo
+  let htmlRelatorio;
+  switch (tipo) {
+    case 'executivo':
+      htmlRelatorio = gerarHTMLRelatorioExecutivo(dados);
+      break;
+    case 'progresso':
+      htmlRelatorio = gerarHTMLRelatorioProgresso(dados);
+      break;
+    case 'diagnostico':
+      htmlRelatorio = gerarHTMLRelatorioDiagnostico(dados);
+      break;
+    default:
+      htmlRelatorio = gerarHTMLPortalCliente(dados);
+  }
+
+  // Cria arquivo no Google Drive como PDF
+  try {
+    const blob = Utilities.newBlob(htmlRelatorio, 'text/html', 'relatorio.html');
+    const folder = getOrCreateFolder('SAE_Relatorios');
+    const arquivo = folder.createFile(blob);
+    arquivo.setName(`SAE_${tipo}_${dados.cliente.empresa_nome}_${new Date().toISOString().slice(0,10)}.html`);
+
+    return {
+      sucesso: true,
+      url: arquivo.getDownloadUrl(),
+      nomeArquivo: arquivo.getName()
+    };
+  } catch (err) {
+    // Fallback: retorna HTML direto para impressão no browser
+    return { sucesso: true, html: htmlRelatorio };
+  }
+}
+
+function gerarHTMLRelatorioExecutivo(dados) {
+  const { cliente, tarefas } = dados;
+  const concluidas = tarefas.filter(t => t.status === 'concluido').length;
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<title>Relatório Executivo — ${cliente.empresa_nome}</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px; color: #1e293b; }
+  h1 { color: #6366f1; border-bottom: 2px solid #6366f1; padding-bottom: 12px; }
+  .kpi { display: inline-block; padding: 16px 24px; border: 1px solid #e2e8f0; border-radius: 8px; margin: 8px; text-align: center; }
+  .kpi strong { display: block; font-size: 28px; color: #6366f1; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th, td { padding: 10px; border: 1px solid #e2e8f0; text-align: left; font-size: 13px; }
+  th { background: #f8fafc; }
+</style>
+</head>
+<body>
+<h1>🐾 SAE — Relatório Executivo</h1>
+<h2>${cliente.empresa_nome}</h2>
+<p>Segmento: ${cliente.segmento} | Consultor: ${cliente.consultor_id}</p>
+<p>Data: ${new Date().toLocaleDateString('pt-BR')}</p>
+
+<h3>KPIs do Projeto</h3>
+<div>
+  <div class="kpi"><strong>${cliente.maturidade || 0}%</strong>Maturidade</div>
+  <div class="kpi"><strong>${tarefas.length}</strong>Total de Ações</div>
+  <div class="kpi"><strong>${concluidas}</strong>Concluídas</div>
+  <div class="kpi"><strong>${tarefas.length - concluidas}</strong>Pendentes</div>
+</div>
+
+<h3>Plano de Ação</h3>
+<table>
+  <tr><th>Ação</th><th>Responsável</th><th>Prazo</th><th>Status</th></tr>
+  ${tarefas.map(t => `<tr><td>${t.descricao}</td><td>${t.responsavel}</td><td>${t.prazo_iso}</td><td>${t.status}</td></tr>`).join('')}
+</table>
+
+<p style="text-align:center;color:#64748b;margin-top:40px;font-size:11px;">
+  SAE — Sistema Apollo Enterprise · Gerado em ${new Date().toLocaleString('pt-BR')}
+</p>
+</body></html>`;
+}
+
+function gerarHTMLRelatorioProgresso(dados) {
+  return gerarHTMLRelatorioExecutivo(dados); // Base para MVP
+}
+
+function gerarHTMLRelatorioDiagnostico(dados) {
+  const { cliente, diagnosticos } = dados;
+  const diagsHTML = diagnosticos.map(d => {
+    let dims = [];
+    try { dims = JSON.parse(d.dimensoes_json || '[]'); } catch(e) {}
+    return `
+      <h4>${d.tipo_matriz} — Score: ${d.score}%</h4>
+      <ul>${dims.map(x => `<li>${x.nome}: ${x.valor}%</li>`).join('')}</ul>
+    `;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Diagnóstico — ${cliente.empresa_nome}</title>
+<style>body{font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:40px;color:#1e293b;}h1{color:#6366f1;}</style>
+</head><body>
+<h1>🔍 Diagnóstico Organizacional</h1>
+<h2>${cliente.empresa_nome}</h2>
+<p>Data: ${new Date().toLocaleDateString('pt-BR')}</p>
+${diagsHTML || '<p>Nenhum diagnóstico disponível.</p>'}
+<p style="text-align:center;color:#64748b;margin-top:40px;font-size:11px;">SAE — Sistema Apollo Enterprise</p>
+</body></html>`;
+}
+
+/**
+ * Helper: obtém ou cria pasta no Google Drive
+ */
+function getOrCreateFolder(nome) {
+  const folders = DriveApp.getFoldersByName(nome);
+  if (folders.hasNext()) return folders.next();
+  return DriveApp.createFolder(nome);
+}
+
+// ============================================================
+// DASHBOARD — KPIs consolidados
+// ============================================================
+
+/**
+ * Retorna todos os KPIs do dashboard de governança
+ */
+function getDashboardKPIs(token) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return { erro: 'Sessão inválida' };
+
+  const ssClientes = getSpreadsheet().getSheetByName('clientes');
+  const ssTarefas  = getSpreadsheet().getSheetByName('tarefas_5w2h');
+  const ssFinanc   = getSpreadsheet().getSheetByName('financeiro');
+
+  const clientes = sheetParaObjetos(ssClientes, { consultor_id: consultorId })
+    .filter(c => c.status !== 'deleted');
+  const tarefas  = sheetParaObjetos(ssTarefas, { consultor_id: consultorId });
+  const financeiro = sheetParaObjetos(ssFinanc, { consultor_id: consultorId });
+
+  const clientesAtivos = clientes.filter(c => c.status === 'active').length;
+  const tarefasConcluidas = tarefas.filter(t => t.status === 'concluido').length;
+  const tarefasAbertas = tarefas.filter(t => t.status !== 'concluido').length;
+
+  const receitaMensal = financeiro
+    .filter(f => f.pago === true || f.pago === 'TRUE')
+    .reduce((acc, f) => acc + (parseFloat(f.valor_mensalidade) || 0), 0);
+
+  const maturidadeMedia = clientes.length > 0
+    ? Math.round(clientes.reduce((acc, c) => acc + (parseFloat(c.maturidade) || 0), 0) / clientes.length)
+    : 0;
+
+  return {
+    sucesso: true,
+    kpis: {
+      clientesAtivos,
+      tarefasConcluidas,
+      tarefasAbertas,
+      receitaMensal: receitaMensal.toFixed(2),
+      maturidadeMedia,
+      totalClientes: clientes.length
+    }
+  };
+}
+
+// ============================================================
+// INTEGRAÇÃO FRONTEND-BACKEND via google.script.run
+// ============================================================
+
+/**
+ * Função unificada para chamar qualquer módulo do backend
+ * Reduz o boilerplate no frontend
+ *
+ * Uso no frontend:
+ *   google.script.run
+ *     .withSuccessHandler(cb)
+ *     .api({ modulo: 'clientes', acao: 'listar', token: '...' })
+ */
+function api(params) {
+  const { modulo, acao, token, dados } = params;
+
+  const roteamento = {
+    auth: {
+      login: autenticarConsultor,
+      verificar: verificarSessao,
+    },
+    clientes: {
+      listar: () => listarClientes(token),
+      salvar: () => salvarCliente(token, dados),
+      excluir: () => excluirCliente(token, dados.uuid),
+    },
+    diagnosticos: {
+      listar: () => listarDiagnosticos(token, dados?.cliente_id),
+      salvar: () => salvarDiagnostico(token, dados),
+    },
+    tarefas: {
+      listar: () => listarTarefas(token, dados?.cliente_id),
+      salvar: () => salvarTarefa(token, dados),
+      mover:  () => moverTarefa(token, dados.uuid, dados.status),
+      evidencia: () => adicionarEvidencia(token, dados.uuid, dados.evidencia),
+    },
+    financeiro: {
+      listar: () => listarFinanceiro(token, dados?.cliente_id),
+      registrar: () => registrarMensalidade(token, dados),
+    },
+    dashboard: {
+      kpis: () => getDashboardKPIs(token),
+    },
+    relatorios: {
+      gerar: () => gerarRelatorio(token, dados.cliente_id, dados.tipo),
+    },
+    setup: {
+      executar: () => setupSpreadsheet(),
+    }
+  };
+
+  try {
+    const fn = roteamento[modulo]?.[acao];
+    if (!fn) return { erro: `Rota não encontrada: ${modulo}.${acao}` };
+    return fn();
+  } catch (err) {
+    Logger.log(`Erro api(${modulo}.${acao}): ${err}`);
+    return { erro: err.message };
+  }
+}
+
+// ============================================================
+// EXEMPLO DE USO NO FRONTEND (index.html / Vue.js)
+// ============================================================
+/*
+
+// ========= AUTENTICAÇÃO =========
+google.script.run
+  .withSuccessHandler(function(res) {
+    if (res.sucesso) {
+      sessionToken = res.token;
+      consultorAtual = res.consultor;
+      carregarDashboard();
+    } else {
+      mostrarErro(res.erro);
+    }
+  })
+  .autenticarConsultor({ email: loginEmail, senha: loginPass });
+
+
+// ========= LISTAR CLIENTES =========
+google.script.run
+  .withSuccessHandler(function(res) {
+    if (res.sucesso) {
+      app.clientes = res.clientes;
+    }
+  })
+  .api({ modulo: 'clientes', acao: 'listar', token: sessionToken });
+
+
+// ========= SALVAR TAREFA 5W2H =========
+google.script.run
+  .withSuccessHandler(function(res) {
+    if (res.sucesso) {
+      app.tarefas.push({ uuid: res.uuid, ...novaTarefa });
+      fecharModal();
+    }
+  })
+  .api({
+    modulo: 'tarefas',
+    acao: 'salvar',
+    token: sessionToken,
+    dados: {
+      cliente_id: clienteSelecionado.uuid,
+      descricao: 'Implantar 5S na produção',
+      responsavel: 'João Silva',
+      prazo_iso: '2026-04-01',
+      onde: 'Linha de Produção',
+      porque: 'Reduzir desperdícios em 30%',
+      como: 'Workshop + kaizen diário',
+      custo: '2000',
+      indicador: 'Índice 5S > 80%',
+      status: 'iniciar',
+      tipo: '5S'
+    }
+  });
+
+
+// ========= DASHBOARD KPIs =========
+google.script.run
+  .withSuccessHandler(function(res) {
+    if (res.sucesso) {
+      app.kpis = res.kpis;
+      renderizarGraficos(res.kpis);
+    }
+  })
+  .api({ modulo: 'dashboard', acao: 'kpis', token: sessionToken });
+
+
+// ========= SETUP INICIAL =========
+google.script.run
+  .withSuccessHandler(function(res) {
+    console.log('Setup completo:', res.spreadsheetId);
+  })
+  .api({ modulo: 'setup', acao: 'executar', token: sessionToken });
+
+*/
