@@ -103,3 +103,18 @@ Pelos artefatos e pela lógica do projeto, os cenários mais prováveis são:
 - [x] Estados explícitos de autenticação implementados: `booting`, `unauthenticated`, `authenticated`, `error`.
 - [x] UX de erro melhorada com mensagens acionáveis e CTA para `setupSpreadsheet()` quando necessário.
 - [~] Componentização/páginas separadas: iniciado via separação de estados/fluxos; refatoração física em partials ficará para etapa seguinte.
+
+## 7) Execução prática (Fases 3, 4 e 5)
+
+### Fase 3 — Performance
+- [x] Leitura de planilhas migrada para `getSheetSnapshot()` com `getRange` delimitado por `lastRow/lastColumn`.
+- [x] Cache curto em `CacheService` para KPIs e listas frequentes (`clientes`, `tarefas`, `dashboard.kpis`).
+- [x] Paginação implementada para `listarClientes` e `listarTarefas` (`page`, `pageSize`, `paginacao`).
+
+### Fase 4 — Qualidade e prevenção
+- [x] Suíte de contrato adicionada via função `runApiContractTests()`.
+- [x] Checklist de deploy + smoke test adicionados ao `README.md`.
+- [x] Telemetria mínima implementada com contadores em `ScriptProperties` (`registrarTelemetria`).
+
+### Fase 5 — Critério de aceite
+- [x] Critérios de aceite documentados no `README.md` para validação operacional da próxima publicação.

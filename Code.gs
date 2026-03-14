@@ -133,6 +133,66 @@ function validarSchemaAbas() {
   return resultado;
 }
 
+const CACHE_TTL_KPIS = 60; // segundos
+const CACHE_TTL_LISTA = 45; // segundos
+
+function getCache() {
+  return CacheService.getScriptCache();
+}
+
+function getCacheJSON(key) {
+  const raw = getCache().get(key);
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+function setCacheJSON(key, value, ttlSecs) {
+  getCache().put(key, JSON.stringify(value), ttlSecs);
+}
+
+function invalidateConsultorCache(consultorId) {
+  if (!consultorId) return;
+  const props = PropertiesService.getScriptProperties();
+  const key = `CACHE_VER_${consultorId}`;
+  const ver = Number(props.getProperty(key) || '1');
+  props.setProperty(key, String(ver + 1));
+}
+
+function getConsultorCacheVersion(consultorId) {
+  const props = PropertiesService.getScriptProperties();
+  return Number(props.getProperty(`CACHE_VER_${consultorId}`) || '1');
+}
+
+function registrarTelemetria(modulo, evento) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const chave = `METRIC_${modulo}_${evento}`.replace(/[^A-Z0-9_]/gi, '_').toUpperCase();
+    const atual = Number(props.getProperty(chave) || '0');
+    props.setProperty(chave, String(atual + 1));
+    logEstruturado('telemetry.increment', { modulo, evento, contador: atual + 1 });
+  } catch (err) {
+    Logger.log('Falha ao registrar telemetria: ' + err.message);
+  }
+}
+
+function getSheetSnapshot(sheet) {
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow < 1 || lastCol < 1) return { headers: [], rows: [] };
+
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (lastRow === 1) return { headers, rows: [] };
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  return { headers, rows };
+}
+
+function parsePaginacao(opts = {}) {
+  const page = Math.max(1, parseInt(opts.page, 10) || 1);
+  const pageSize = Math.min(200, Math.max(1, parseInt(opts.pageSize, 10) || 50));
+  return { page, pageSize, offset: (page - 1) * pageSize };
+}
+
 
 /**
  * Retorna o Spreadsheet ativo (ou cria um novo se não configurado)
@@ -402,11 +462,11 @@ function verificarSessao(token) {
  * @param {Object} filtros - ex: { consultor_id: 'uuid-...' }
  */
 function sheetParaObjetos(sheet, filtros = {}) {
-  const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return [];
+  const snapshot = getSheetSnapshot(sheet);
+  if (snapshot.rows.length === 0) return [];
 
-  const headers = data[0];
-  const rows = data.slice(1);
+  const headers = snapshot.headers;
+  const rows = snapshot.rows;
 
   return rows
     .map(row => {
@@ -427,12 +487,13 @@ function sheetParaObjetos(sheet, filtros = {}) {
  * Encontra a linha pelo UUID
  */
 function encontrarLinha(sheet, uuid) {
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
+  const snapshot = getSheetSnapshot(sheet);
+  const headers = snapshot.headers;
   const idxUUID = headers.indexOf('uuid');
+  if (idxUUID < 0) return null;
 
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][idxUUID] === uuid) return { row: i + 1, headers, data: data[i] };
+  for (let i = 0; i < snapshot.rows.length; i++) {
+    if (snapshot.rows[i][idxUUID] === uuid) return { row: i + 2, headers, data: snapshot.rows[i] };
   }
   return null;
 }
@@ -445,13 +506,44 @@ function encontrarLinha(sheet, uuid) {
  * Busca todos os clientes do consultor
  * Multi-tenant: filtra por consultor_id
  */
-function listarClientes(token) {
+function listarClientes(token, opts = {}) {
   const consultorId = verificarSessao(token);
   if (!consultorId) return falha('Sessão inválida');
 
-  const sheet = getSpreadsheet().getSheetByName('clientes');
-  const clientes = sheetParaObjetos(sheet, { consultor_id: consultorId });
-  return { sucesso: true, clientes };
+  const pag = parsePaginacao(opts);
+  const cacheVer = getConsultorCacheVersion(consultorId);
+  const cacheKey = `clientes:${consultorId}:v${cacheVer}:p${pag.page}:s${pag.pageSize}:q${opts.query || ''}`;
+  const cacheHit = getCacheJSON(cacheKey);
+  if (cacheHit) return cacheHit;
+
+  const sheetInfo = getSheetOrFail('clientes');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
+
+  const query = String(opts.query || '').toLowerCase().trim();
+  let clientes = sheetParaObjetos(sheet, { consultor_id: consultorId })
+    .filter(c => c.status !== 'deleted');
+
+  if (query) {
+    clientes = clientes.filter(c =>
+      String(c.empresa_nome || '').toLowerCase().includes(query) ||
+      String(c.segmento || '').toLowerCase().includes(query) ||
+      String(c.responsavel || '').toLowerCase().includes(query)
+    );
+  }
+
+  const total = clientes.length;
+  const itens = clientes.slice(pag.offset, pag.offset + pag.pageSize);
+  const paginacao = {
+    page: pag.page,
+    pageSize: pag.pageSize,
+    total,
+    totalPages: Math.ceil(total / pag.pageSize) || 1
+  };
+
+  const resposta = { sucesso: true, clientes: itens, paginacao };
+  setCacheJSON(cacheKey, resposta, CACHE_TTL_LISTA);
+  return resposta;
 }
 
 /**
@@ -478,6 +570,7 @@ function salvarCliente(token, dadosCliente) {
       if (col > 0) sheet.getRange(rowIdx, col).setValue(v);
     }
     sheet.getRange(rowIdx, headers.indexOf('updated_at') + 1).setValue(agora);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid: dadosCliente.uuid, acao: 'atualizado' };
   } else {
     // INSERT
@@ -497,6 +590,7 @@ function salvarCliente(token, dadosCliente) {
       dadosCliente.obs || '',
       agora
     ]);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid, acao: 'criado' };
   }
 }
@@ -519,6 +613,7 @@ function excluirCliente(token, clienteUUID) {
 
   const idxStatus = headers.indexOf('status') + 1;
   sheet.getRange(linha.row, idxStatus).setValue('deleted');
+  invalidateConsultorCache(consultorId);
   return { sucesso: true };
 }
 
@@ -626,18 +721,36 @@ function calcularScore(tipoMatriz, respostas) {
 /**
  * Lista tarefas do consultor
  */
-function listarTarefas(token, clienteId = null) {
+function listarTarefas(token, clienteId = null, opts = {}) {
   const consultorId = verificarSessao(token);
   if (!consultorId) return falha('Sessão inválida');
 
-  const sheet = getSpreadsheet().getSheetByName('tarefas_5w2h');
+  const pag = parsePaginacao(opts);
+  const cacheVer = getConsultorCacheVersion(consultorId);
+  const cacheKey = `tarefas:${consultorId}:v${cacheVer}:${clienteId || 'all'}:p${pag.page}:s${pag.pageSize}`;
+  const cacheHit = getCacheJSON(cacheKey);
+  if (cacheHit) return cacheHit;
+
+  const sheetInfo = getSheetOrFail('tarefas_5w2h');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
   const filtros = { consultor_id: consultorId };
   if (clienteId) filtros.cliente_id = clienteId;
 
-  const tarefas = sheetParaObjetos(sheet, filtros)
+  const lista = sheetParaObjetos(sheet, filtros)
     .filter(t => t.status !== 'deleted');
+  const total = lista.length;
+  const tarefas = lista.slice(pag.offset, pag.offset + pag.pageSize);
+  const paginacao = {
+    page: pag.page,
+    pageSize: pag.pageSize,
+    total,
+    totalPages: Math.ceil(total / pag.pageSize) || 1
+  };
 
-  return { sucesso: true, tarefas };
+  const resposta = { sucesso: true, tarefas, paginacao };
+  setCacheJSON(cacheKey, resposta, CACHE_TTL_LISTA);
+  return resposta;
 }
 
 /**
@@ -647,7 +760,9 @@ function salvarTarefa(token, dados) {
   const consultorId = verificarSessao(token);
   if (!consultorId) return falha('Sessão inválida');
 
-  const sheet = getSpreadsheet().getSheetByName('tarefas_5w2h');
+  const sheetInfo = getSheetOrFail('tarefas_5w2h');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
   const agora = new Date().toISOString();
 
   if (dados.uuid) {
@@ -667,6 +782,7 @@ function salvarTarefa(token, dados) {
       }
     });
     sheet.getRange(linha.row, headers.indexOf('updated_at') + 1).setValue(agora);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid: dados.uuid, acao: 'atualizado' };
   } else {
     const uuid = gerarUUID();
@@ -688,6 +804,7 @@ function salvarTarefa(token, dados) {
       agora,
       agora
     ]);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid, acao: 'criado' };
   }
 }
@@ -724,7 +841,9 @@ function listarFinanceiro(token, clienteId = null) {
   const consultorId = verificarSessao(token);
   if (!consultorId) return falha('Sessão inválida');
 
-  const sheet = getSpreadsheet().getSheetByName('financeiro');
+  const sheetInfo = getSheetOrFail('financeiro');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
   const filtros = { consultor_id: consultorId };
   if (clienteId) filtros.cliente_id = clienteId;
 
@@ -769,6 +888,7 @@ function registrarMensalidade(token, dados) {
     if (dados.metodo) {
       sheet.getRange(linha.row, headers.indexOf('metodo_pagamento') + 1).setValue(dados.metodo);
     }
+    invalidateConsultorCache(consultorId);
     return { sucesso: true };
   } else {
     // Novo registro
@@ -785,6 +905,7 @@ function registrarMensalidade(token, dados) {
       dados.obs || '',
       agora
     ]);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid };
   }
 }
@@ -1058,28 +1179,36 @@ function getDashboardKPIs(token) {
   const consultorId = verificarSessao(token);
   if (!consultorId) return falha('Sessão inválida');
 
-  const ssClientes = getSpreadsheet().getSheetByName('clientes');
-  const ssTarefas  = getSpreadsheet().getSheetByName('tarefas_5w2h');
-  const ssFinanc   = getSpreadsheet().getSheetByName('financeiro');
+  const cacheVer = getConsultorCacheVersion(consultorId);
+  const cacheKey = `dashboard:kpis:${consultorId}:v${cacheVer}`;
+  const cacheHit = getCacheJSON(cacheKey);
+  if (cacheHit) return cacheHit;
 
-  const clientes = sheetParaObjetos(ssClientes, { consultor_id: consultorId })
+  const cInfo = getSheetOrFail('clientes');
+  const tInfo = getSheetOrFail('tarefas_5w2h');
+  const fInfo = getSheetOrFail('financeiro');
+  if (cInfo.error) return cInfo.error;
+  if (tInfo.error) return tInfo.error;
+  if (fInfo.error) return fInfo.error;
+
+  const clientes = sheetParaObjetos(cInfo.sheet, { consultor_id: consultorId })
     .filter(c => c.status !== 'deleted');
-  const tarefas  = sheetParaObjetos(ssTarefas, { consultor_id: consultorId });
-  const financeiro = sheetParaObjetos(ssFinanc, { consultor_id: consultorId });
+  const tarefas  = sheetParaObjetos(tInfo.sheet, { consultor_id: consultorId });
+  const financeiro = sheetParaObjetos(fInfo.sheet, { consultor_id: consultorId });
 
   const clientesAtivos = clientes.filter(c => c.status === 'active').length;
   const tarefasConcluidas = tarefas.filter(t => t.status === 'concluido').length;
   const tarefasAbertas = tarefas.filter(t => t.status !== 'concluido').length;
 
   const receitaMensal = financeiro
-    .filter(f => f.pago === true || f.pago === 'TRUE')
-    .reduce((acc, f) => acc + (parseFloat(f.valor_mensalidade) || 0), 0);
+    .filter(f => toBooleanSafe(f.pago))
+    .reduce((acc, f) => acc + toNumberSafe(f.valor_mensalidade, 0), 0);
 
   const maturidadeMedia = clientes.length > 0
-    ? Math.round(clientes.reduce((acc, c) => acc + (parseFloat(c.maturidade) || 0), 0) / clientes.length)
+    ? Math.round(clientes.reduce((acc, c) => acc + toNumberSafe(c.maturidade, 0), 0) / clientes.length)
     : 0;
 
-  return {
+  const resposta = {
     sucesso: true,
     kpis: {
       clientesAtivos,
@@ -1090,6 +1219,9 @@ function getDashboardKPIs(token) {
       totalClientes: clientes.length
     }
   };
+
+  setCacheJSON(cacheKey, resposta, CACHE_TTL_KPIS);
+  return resposta;
 }
 
 // ============================================================
@@ -1114,7 +1246,7 @@ function api(params) {
       verificar: () => { const consultorId = verificarSessao(token); return { sucesso: !!consultorId, consultor_id: consultorId }; },
     },
     clientes: {
-      listar: () => listarClientes(token),
+      listar: () => listarClientes(token, dados || {}),
       salvar: () => salvarCliente(token, dados),
       excluir: () => excluirCliente(token, dados.uuid),
     },
@@ -1123,7 +1255,7 @@ function api(params) {
       salvar: () => salvarDiagnostico(token, dados),
     },
     tarefas: {
-      listar: () => listarTarefas(token, dados?.cliente_id),
+      listar: () => listarTarefas(token, dados?.cliente_id, dados || {}),
       salvar: () => salvarTarefa(token, dados),
       mover:  () => moverTarefa(token, dados.uuid, dados.status),
       evidencia: () => adicionarEvidencia(token, dados.uuid, dados.evidencia),
@@ -1146,7 +1278,10 @@ function api(params) {
 
   try {
     const fn = roteamento[modulo]?.[acao];
-    if (!fn) return falha(`Rota não encontrada: ${modulo}.${acao}`);
+    if (!fn) {
+      registrarTelemetria('api', 'rota_nao_encontrada');
+      return falha(`Rota não encontrada: ${modulo}.${acao}`);
+    }
 
     const raw = fn();
     if (raw && raw.sucesso === true) {
@@ -1156,13 +1291,61 @@ function api(params) {
       return sucesso(payload, payload);
     }
     if (raw && raw.erro) {
+      registrarTelemetria(modulo || 'api', 'erro_negocio');
       return falha(raw.erro, raw);
     }
     return sucesso(raw || {});
   } catch (err) {
+    registrarTelemetria(modulo || 'api', 'exception');
     logEstruturado('api.exception', { modulo, acao, mensagem: err.message }, 'ERROR');
     return falha(err.message);
   }
+}
+
+// ============================================================
+// TESTES DE CONTRATO DA API (Fase 4)
+// ============================================================
+
+function runApiContractTests() {
+  const resultados = [];
+
+  function expect(cond, nome, detalhe) {
+    resultados.push({ nome, ok: !!cond, detalhe: detalhe || '' });
+  }
+
+  const unknown = api({ modulo: 'x', acao: 'y' });
+  expect(unknown.sucesso === false && !!unknown.erro, 'rota_invalida', JSON.stringify(unknown));
+
+  const authMissing = api({ modulo: 'auth', acao: 'login', dados: {} });
+  expect(authMissing.sucesso === false && /Campos obrigatórios/.test(authMissing.erro || ''), 'auth_login_payload_obrigatorio', JSON.stringify(authMissing));
+
+  const modulos = [
+    ['clientes', 'listar'], ['clientes', 'salvar'], ['clientes', 'excluir'],
+    ['diagnosticos', 'listar'], ['diagnosticos', 'salvar'],
+    ['tarefas', 'listar'], ['tarefas', 'salvar'], ['tarefas', 'mover'],
+    ['financeiro', 'listar'], ['financeiro', 'registrar'],
+    ['dashboard', 'kpis'], ['relatorios', 'gerar']
+  ];
+
+  modulos.forEach(([modulo, acao]) => {
+    const res = api({ modulo, acao, token: 'token_invalido', dados: {} });
+    expect(typeof res.sucesso === 'boolean', `contrato_${modulo}_${acao}_sucesso_bool`, JSON.stringify(res));
+    if (res.sucesso === false) {
+      expect(typeof res.erro === 'string' && res.erro.length > 0, `contrato_${modulo}_${acao}_erro_string`, JSON.stringify(res));
+    }
+  });
+
+  const schemaCheck = api({ modulo: 'setup', acao: 'validarSchema' });
+  expect(schemaCheck && typeof schemaCheck.sucesso === 'boolean', 'setup_validarSchema_contrato', JSON.stringify(schemaCheck));
+
+  const aprovados = resultados.filter(r => r.ok).length;
+  const reprovados = resultados.length - aprovados;
+
+  return {
+    sucesso: reprovados === 0,
+    resumo: { total: resultados.length, aprovados, reprovados },
+    resultados
+  };
 }
 
 // ============================================================
