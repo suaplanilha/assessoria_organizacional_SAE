@@ -32,6 +32,108 @@
 const SPREADSHEET_ID = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '';
 const SECRET_SALT    = PropertiesService.getScriptProperties().getProperty('SECRET_SALT') || 'sae_apollo_2026_salt';
 
+
+const SCHEMA_VERSION = '1.0.0';
+
+const SHEET_SCHEMAS = {
+  consultores: [
+    'uuid', 'nome', 'email', 'email_hash', 'plano_saas',
+    'data_adesao', 'ativo', 'configuracoes_json'
+  ],
+  clientes: [
+    'uuid', 'consultor_id', 'empresa_nome', 'segmento',
+    'responsavel', 'email_contato', 'telefone', 'status',
+    'mensalidade', 'data_inicio', 'maturidade', 'obs', 'created_at'
+  ],
+  diagnosticos: [
+    'uuid', 'cliente_id', 'consultor_id', 'tipo_matriz',
+    'respostas_json', 'score', 'dimensoes_json', 'observacoes',
+    'created_at', 'status'
+  ],
+  tarefas_5w2h: [
+    'uuid', 'cliente_id', 'consultor_id', 'descricao', 'responsavel',
+    'prazo_iso', 'onde', 'porque', 'como', 'custo', 'indicador',
+    'status', 'tipo', 'evidencia', 'created_at', 'updated_at'
+  ],
+  financeiro: [
+    'uuid', 'cliente_id', 'consultor_id', 'valor_mensalidade',
+    'data_vencimento', 'data_pagamento', 'pago', 'metodo_pagamento', 'obs', 'created_at'
+  ],
+  sessoes: [
+    'token', 'consultor_id', 'email_hash', 'created_at', 'expires_at', 'ativo'
+  ]
+};
+
+function logEstruturado(evento, payload = {}, nivel = 'INFO') {
+  const base = {
+    ts: new Date().toISOString(),
+    nivel,
+    evento,
+    schemaVersion: SCHEMA_VERSION
+  };
+  Logger.log(JSON.stringify(Object.assign(base, payload)));
+}
+
+function sucesso(dados = {}, extras = {}) {
+  return Object.assign({ sucesso: true, erro: null, dados }, extras);
+}
+
+function falha(erro, extras = {}) {
+  return Object.assign({ sucesso: false, erro, dados: null }, extras);
+}
+
+function toBooleanSafe(v) {
+  return v === true || v === 'TRUE' || v === 'true' || v === 1 || v === '1';
+}
+
+function toNumberSafe(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function toISODateSafe(v, fallback = null) {
+  if (!v) return fallback;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? fallback : d.toISOString();
+}
+
+function getSheetOrFail(nomeAba) {
+  const sheet = getSpreadsheet().getSheetByName(nomeAba);
+  if (!sheet) {
+    return {
+      sheet: null,
+      error: falha(`Aba obrigatória não encontrada: ${nomeAba}`, {
+        acao_sugerida: 'Execute setupSpreadsheet() para criar/ajustar as abas necessárias.'
+      })
+    };
+  }
+  return { sheet, error: null };
+}
+
+function validarSchemaAbas() {
+  const ss = getSpreadsheet();
+  const resultado = { versao: SCHEMA_VERSION, ok: true, detalhes: [] };
+
+  Object.entries(SHEET_SCHEMAS).forEach(([nomeAba, headersEsperados]) => {
+    const sheet = ss.getSheetByName(nomeAba);
+    if (!sheet) {
+      resultado.ok = false;
+      resultado.detalhes.push({ aba: nomeAba, status: 'ausente', faltantes: headersEsperados });
+      return;
+    }
+
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].filter(Boolean);
+    const faltantes = headersEsperados.filter(h => !headers.includes(h));
+    if (faltantes.length > 0) {
+      resultado.ok = false;
+      resultado.detalhes.push({ aba: nomeAba, status: 'incompleta', faltantes });
+    }
+  });
+
+  return resultado;
+}
+
+
 /**
  * Retorna o Spreadsheet ativo (ou cria um novo se não configurado)
  */
@@ -87,42 +189,7 @@ function doPost(e) {
 function setupSpreadsheet() {
   const ss = getSpreadsheet();
 
-  const SHEETS = {
-    consultores: [
-      'uuid', 'nome', 'email', 'email_hash', 'plano_saas',
-      'data_adesao', 'ativo', 'configuracoes_json'
-    ],
-    clientes: [
-      'uuid', 'consultor_id', 'empresa_nome', 'segmento',
-      'responsavel', 'email_contato', 'telefone', 'status',
-      'mensalidade', 'data_inicio', 'maturidade', 'obs', 'created_at'
-    ],
-    diagnosticos: [
-      'uuid', 'cliente_id', 'consultor_id', 'tipo_matriz',
-      'respostas_json', 'score', 'dimensoes_json', 'observacoes',
-      'created_at', 'status'
-    ],
-    tarefas_5w2h: [
-      'uuid', 'cliente_id', 'consultor_id',
-      'descricao',      // WHAT
-      'responsavel',    // WHO
-      'prazo_iso',      // WHEN
-      'onde',           // WHERE
-      'porque',         // WHY
-      'como',           // HOW
-      'custo',          // HOW MUCH
-      'indicador',      // HOW TO MEASURE
-      'status', 'tipo', 'evidencia', 'created_at', 'updated_at'
-    ],
-    financeiro: [
-      'uuid', 'cliente_id', 'consultor_id',
-      'valor_mensalidade', 'data_vencimento', 'data_pagamento',
-      'pago', 'metodo_pagamento', 'obs', 'created_at'
-    ],
-    sessoes: [
-      'token', 'consultor_id', 'email_hash', 'created_at', 'expires_at', 'ativo'
-    ]
-  };
+  const SHEETS = SHEET_SCHEMAS;
 
   const existentes = ss.getSheets().map(s => s.getName());
 
@@ -153,9 +220,10 @@ function setupSpreadsheet() {
   // Salva o ID da planilha nas propriedades
   PropertiesService.getScriptProperties()
     .setProperty('SPREADSHEET_ID', ss.getId());
+  PropertiesService.getScriptProperties().setProperty('DB_SCHEMA_VERSION', SCHEMA_VERSION);
 
   Logger.log('Setup concluído! Spreadsheet ID: ' + ss.getId());
-  return { status: 'ok', message: 'Setup completo', spreadsheetId: ss.getId() };
+  return sucesso({ status: 'ok', message: 'Setup completo', spreadsheetId: ss.getId(), schemaVersion: SCHEMA_VERSION });
 }
 
 // ============================================================
@@ -196,12 +264,17 @@ function gerarUUID() {
 function autenticarConsultor(dados) {
   try {
     const { email, senha } = dados;
-    if (!email || !senha) return { sucesso: false, erro: 'Campos obrigatórios' };
+    if (!email || !senha) {
+      logEstruturado('auth.login.validation_failed', { emailInformado: !!email }, 'WARN');
+      return falha('Campos obrigatórios');
+    }
 
     const emailHash = hashEmail(email);
     const senhaHash = hashEmail(senha); // senha também hasheada
 
-    const sheet = getSpreadsheet().getSheetByName('consultores');
+    const sheetInfo = getSheetOrFail('consultores');
+    if (sheetInfo.error) return sheetInfo.error;
+    const sheet = sheetInfo.sheet;
     const rows = sheet.getDataRange().getValues();
     const headers = rows[0];
     const idxHash = headers.indexOf('email_hash');
@@ -213,7 +286,7 @@ function autenticarConsultor(dados) {
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       // Compara email_hash
-      if (row[idxHash] === emailHash && row[idxAtivo] === true) {
+      if (row[idxHash] === emailHash && toBooleanSafe(row[idxAtivo])) {
         const consultor = {
           uuid: row[idxUUID],
           nome: row[idxNome],
@@ -230,8 +303,8 @@ function autenticarConsultor(dados) {
     return autoCadastrarConsultor(email, emailHash);
 
   } catch (err) {
-    Logger.log('Erro autenticarConsultor: ' + err);
-    return { sucesso: false, erro: 'Erro interno: ' + err.message };
+    logEstruturado('auth.login.exception', { mensagem: err.message, stack: String(err.stack || '') }, 'ERROR');
+    return falha('Erro interno: ' + err.message);
   }
 }
 
@@ -239,7 +312,9 @@ function autenticarConsultor(dados) {
  * Auto-cadastra consultor no primeiro acesso (MVP)
  */
 function autoCadastrarConsultor(email, emailHash) {
-  const sheet = getSpreadsheet().getSheetByName('consultores');
+  const sheetInfo = getSheetOrFail('consultores');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
   const uuid = gerarUUID();
   const nome = email.split('@')[0].replace(/[^a-zA-Z]/g, ' ').trim();
 
@@ -267,7 +342,9 @@ function autoCadastrarConsultor(email, emailHash) {
  * Cria sessão (token) para o consultor
  */
 function criarSessao(consultorId, emailHash) {
-  const sheet = getSpreadsheet().getSheetByName('sessoes');
+  const sheetInfo = getSheetOrFail('sessoes');
+  if (sheetInfo.error) throw new Error(sheetInfo.error.erro);
+  const sheet = sheetInfo.sheet;
   const token = Utilities.base64Encode(
     gerarUUID() + ':' + consultorId + ':' + new Date().getTime()
   );
@@ -289,7 +366,12 @@ function criarSessao(consultorId, emailHash) {
 function verificarSessao(token) {
   if (!token) return null;
   try {
-    const sheet = getSpreadsheet().getSheetByName('sessoes');
+    const sheetInfo = getSheetOrFail('sessoes');
+    if (sheetInfo.error) {
+      logEstruturado('auth.session.sheet_missing', { mensagem: sheetInfo.error.erro }, 'ERROR');
+      return null;
+    }
+    const sheet = sheetInfo.sheet;
     const rows = sheet.getDataRange().getValues();
     const headers = rows[0];
     const idxToken    = headers.indexOf('token');
@@ -298,7 +380,7 @@ function verificarSessao(token) {
     const idxAtivo    = headers.indexOf('ativo');
 
     for (let i = 1; i < rows.length; i++) {
-      const ativo = rows[i][idxAtivo] === true || rows[i][idxAtivo] === 'TRUE';
+      const ativo = toBooleanSafe(rows[i][idxAtivo]);
       if (rows[i][idxToken] === token && ativo) {
         const expira = new Date(rows[i][idxExpires]);
         if (expira > new Date()) return rows[i][idxConsId];
@@ -365,7 +447,7 @@ function encontrarLinha(sheet, uuid) {
  */
 function listarClientes(token) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
 
   const sheet = getSpreadsheet().getSheetByName('clientes');
   const clientes = sheetParaObjetos(sheet, { consultor_id: consultorId });
@@ -377,7 +459,7 @@ function listarClientes(token) {
  */
 function salvarCliente(token, dadosCliente) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
 
   const sheet = getSpreadsheet().getSheetByName('clientes');
   const agora = new Date().toISOString();
@@ -385,7 +467,7 @@ function salvarCliente(token, dadosCliente) {
   if (dadosCliente.uuid) {
     // UPDATE
     const linha = encontrarLinha(sheet, dadosCliente.uuid);
-    if (!linha) return { erro: 'Cliente não encontrado' };
+    if (!linha) return falha('Cliente não encontrado');
 
     const headers = linha.headers;
     const rowIdx  = linha.row;
@@ -424,16 +506,16 @@ function salvarCliente(token, dadosCliente) {
  */
 function excluirCliente(token, clienteUUID) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
 
   const sheet = getSpreadsheet().getSheetByName('clientes');
   const linha = encontrarLinha(sheet, clienteUUID);
-  if (!linha) return { erro: 'Cliente não encontrado' };
+  if (!linha) return falha('Cliente não encontrado');
 
   // Verifica isolamento multi-tenant
   const headers = linha.headers;
   const idxConsultor = headers.indexOf('consultor_id');
-  if (linha.data[idxConsultor] !== consultorId) return { erro: 'Acesso negado' };
+  if (linha.data[idxConsultor] !== consultorId) return falha('Acesso negado');
 
   const idxStatus = headers.indexOf('status') + 1;
   sheet.getRange(linha.row, idxStatus).setValue('deleted');
@@ -449,7 +531,7 @@ function excluirCliente(token, clienteUUID) {
  */
 function listarDiagnosticos(token, clienteId = null) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
 
   const sheet = getSpreadsheet().getSheetByName('diagnosticos');
   const filtros = { consultor_id: consultorId };
@@ -470,7 +552,7 @@ function listarDiagnosticos(token, clienteId = null) {
  */
 function salvarDiagnostico(token, dados) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
 
   const sheet = getSpreadsheet().getSheetByName('diagnosticos');
   const agora = new Date().toISOString();
@@ -481,7 +563,7 @@ function salvarDiagnostico(token, dados) {
   if (dados.uuid) {
     // UPDATE
     const linha = encontrarLinha(sheet, dados.uuid);
-    if (!linha) return { erro: 'Diagnóstico não encontrado' };
+    if (!linha) return falha('Diagnóstico não encontrado');
     const headers = linha.headers;
     sheet.getRange(linha.row, headers.indexOf('respostas_json') + 1).setValue(JSON.stringify(dados.respostas));
     sheet.getRange(linha.row, headers.indexOf('score') + 1).setValue(score);
@@ -546,7 +628,7 @@ function calcularScore(tipoMatriz, respostas) {
  */
 function listarTarefas(token, clienteId = null) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
 
   const sheet = getSpreadsheet().getSheetByName('tarefas_5w2h');
   const filtros = { consultor_id: consultorId };
@@ -563,7 +645,7 @@ function listarTarefas(token, clienteId = null) {
  */
 function salvarTarefa(token, dados) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
 
   const sheet = getSpreadsheet().getSheetByName('tarefas_5w2h');
   const agora = new Date().toISOString();
@@ -640,7 +722,7 @@ function adicionarEvidencia(token, tarefaUUID, evidencia) {
  */
 function listarFinanceiro(token, clienteId = null) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
 
   const sheet = getSpreadsheet().getSheetByName('financeiro');
   const filtros = { consultor_id: consultorId };
@@ -672,7 +754,7 @@ function listarFinanceiro(token, clienteId = null) {
  */
 function registrarMensalidade(token, dados) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
 
   const sheet = getSpreadsheet().getSheetByName('financeiro');
   const agora = new Date().toISOString();
@@ -848,7 +930,7 @@ function gerarHTMLPortalCliente(dados) {
  */
 function gerarRelatorio(token, clienteId, tipo) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
 
   const dados = getDadosPortalCliente(clienteId);
   if (!dados) return { erro: 'Cliente não encontrado' };
@@ -974,7 +1056,7 @@ function getOrCreateFolder(nome) {
  */
 function getDashboardKPIs(token) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
 
   const ssClientes = getSpreadsheet().getSheetByName('clientes');
   const ssTarefas  = getSpreadsheet().getSheetByName('tarefas_5w2h');
@@ -1024,12 +1106,12 @@ function getDashboardKPIs(token) {
  *     .api({ modulo: 'clientes', acao: 'listar', token: '...' })
  */
 function api(params) {
-  const { modulo, acao, token, dados } = params;
+  const { modulo, acao, token, dados } = params || {};
 
   const roteamento = {
     auth: {
       login: () => autenticarConsultor(dados),
-      verificar: () => verificarSessao(token),
+      verificar: () => { const consultorId = verificarSessao(token); return { sucesso: !!consultorId, consultor_id: consultorId }; },
     },
     clientes: {
       listar: () => listarClientes(token),
@@ -1058,16 +1140,28 @@ function api(params) {
     },
     setup: {
       executar: () => setupSpreadsheet(),
+      validarSchema: () => sucesso(validarSchemaAbas()),
     }
   };
 
   try {
     const fn = roteamento[modulo]?.[acao];
-    if (!fn) return { erro: `Rota não encontrada: ${modulo}.${acao}` };
-    return fn();
+    if (!fn) return falha(`Rota não encontrada: ${modulo}.${acao}`);
+
+    const raw = fn();
+    if (raw && raw.sucesso === true) {
+      if (raw.dados !== undefined) return raw;
+      const payload = Object.assign({}, raw);
+      delete payload.sucesso;
+      return sucesso(payload, payload);
+    }
+    if (raw && raw.erro) {
+      return falha(raw.erro, raw);
+    }
+    return sucesso(raw || {});
   } catch (err) {
-    Logger.log(`Erro api(${modulo}.${acao}): ${err}`);
-    return { erro: err.message };
+    logEstruturado('api.exception', { modulo, acao, mensagem: err.message }, 'ERROR');
+    return falha(err.message);
   }
 }
 

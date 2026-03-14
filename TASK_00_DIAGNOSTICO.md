@@ -82,3 +82,24 @@ Pelos artefatos e pela lógica do projeto, os cenários mais prováveis são:
 - Sessão persistindo e validando corretamente por 7 dias.
 - Dashboard carregando dados reais (não mock) sem erro JS no console.
 - Fluxos críticos (cliente, tarefa, financeiro) com sucesso de ponta a ponta.
+
+
+## 6) Execução prática (Fases 0, 1 e 2)
+
+### Fase 0 — Status
+- [x] `doGet` protegido para ausência de evento.
+- [x] `api.auth.login` encaminhando `dados` corretamente.
+- [x] Normalização de booleano de sessão via utilitário `toBooleanSafe`.
+- [x] Log estruturado adicionado (`logEstruturado`) para falhas de autenticação/sessão/API.
+
+### Fase 1 — Status
+- [x] Camada utilitária criada para tipagem segura (`toBooleanSafe`, `toNumberSafe`, `toISODateSafe`).
+- [x] Respostas padronizadas no gateway `api` com `sucesso()`/`falha()`.
+- [x] Guarda de abas inexistentes implementada com ação sugerida (`getSheetOrFail`).
+- [x] Política de schema versionado definida (`SCHEMA_VERSION`, `SHEET_SCHEMAS`, `validarSchemaAbas`).
+
+### Fase 2 — Status
+- [x] Login e bootstrap conectados ao backend real com `google.script.run` (sem mock no fluxo de autenticação).
+- [x] Estados explícitos de autenticação implementados: `booting`, `unauthenticated`, `authenticated`, `error`.
+- [x] UX de erro melhorada com mensagens acionáveis e CTA para `setupSpreadsheet()` quando necessário.
+- [~] Componentização/páginas separadas: iniciado via separação de estados/fluxos; refatoração física em partials ficará para etapa seguinte.

@@ -557,7 +557,7 @@ tr:last-child td { border-bottom: none; }
   </transition>
 
   <!-- LOGIN -->
-  <div class="login-wrap" v-if="!authenticated">
+  <div class="login-wrap" v-if="appState!=='authenticated'">
     <div class="login-box">
       <div class="login-logo">
         <span class="login-apollo">🐾</span>
@@ -572,11 +572,15 @@ tr:last-child td { border-bottom: none; }
         <label class="form-label">Senha</label>
         <input class="form-input" type="password" v-model="loginPass" placeholder="••••••••" @keyup.enter="doLogin">
       </div>
+      <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 12px;" v-if="appState==='booting'">Validando sessão...</div>
       <div style="color: var(--rose); font-size: 12px; margin-bottom: 12px;" v-if="loginError">{{ loginError }}</div>
-      <button class="login-btn" @click="doLogin">Entrar no Sistema</button>
+      <button class="login-btn" @click="doLogin" :disabled="appState==='booting'">Entrar no Sistema</button>
       <div class="login-divider">— ou acesse como —</div>
-      <button class="btn btn-ghost" style="width:100%; justify-content:center;" @click="demoLogin">
+      <button class="btn btn-ghost" style="width:100%; justify-content:center;" @click="demoLogin" :disabled="appState==='booting'">
         🚀 Demo: Consultor Apollo
+      </button>
+      <button class="btn btn-ghost" style="width:100%; justify-content:center; margin-top:8px;" @click="runSetup" v-if="showSetupAction">
+        🛠️ Executar setupSpreadsheet()
       </button>
       <p style="text-align:center; color:var(--text-muted); font-size:10px; margin-top:16px;">
         Dados protegidos por SHA-256 · Multi-tenant isolado por consultor
@@ -1434,7 +1438,10 @@ createApp({
   setup() {
     /* STATE */
     const loading = ref(false);
+    const appState = ref('booting'); // booting | unauthenticated | authenticated | error
     const authenticated = ref(false);
+    const sessionToken = ref('');
+    const showSetupAction = ref(false);
     const loginEmail = ref('');
     const loginPass = ref('');
     const loginError = ref('');
@@ -1702,18 +1709,73 @@ createApp({
 
     function selectCliente(c) { clienteSelecionado.value = c; }
 
+    function hasGasRuntime() {
+      return typeof google !== 'undefined' && google.script && google.script.run;
+    }
+
+    function setAuthState(nextState, errorMessage = '') {
+      appState.value = nextState;
+      authenticated.value = nextState === 'authenticated';
+      loginError.value = errorMessage || '';
+    }
+
+    function callBackend(methodName, payload) {
+      return new Promise((resolve, reject) => {
+        if (!hasGasRuntime()) {
+          reject(new Error('Google Apps Script indisponível neste ambiente. Faça o deploy via Web App.'));
+          return;
+        }
+
+        let runner = google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler((err) => reject(err));
+
+        if (payload === undefined) {
+          runner[methodName]();
+        } else {
+          runner[methodName](payload);
+        }
+      });
+    }
+
     /* AUTH */
-    function doLogin() {
+    async function doLogin() {
       if (!loginEmail.value || !loginPass.value) {
         loginError.value = 'Preencha todos os campos'; return;
       }
+
       loading.value = true;
-      // Simula chamada google.script.run.autenticarConsultor()
-      setTimeout(() => {
-        loading.value = false;
-        authenticated.value = true;
+      loginError.value = '';
+      showSetupAction.value = false;
+
+      try {
+        const res = await callBackend('autenticarConsultor', { email: loginEmail.value, senha: loginPass.value });
+        if (!res?.sucesso) {
+          const erroMsg = res?.erro || 'Falha ao autenticar. Verifique seus dados.';
+          showSetupAction.value = /Aba obrigatória não encontrada|setupSpreadsheet/i.test(erroMsg);
+          setAuthState('error', erroMsg);
+          return;
+        }
+
+        sessionToken.value = res.token || '';
+        if (res.consultor) {
+          user.value = {
+            nome: res.consultor.nome || user.value.nome,
+            email: res.consultor.email || loginEmail.value,
+            plano: res.consultor.plano || user.value.plano,
+            initials: (res.consultor.nome || 'A').split(' ').map(n => n[0]).slice(0,2).join('').toUpperCase()
+          };
+        }
+
+        setAuthState('authenticated');
         setTimeout(initCharts, 300);
-      }, 1200);
+      } catch (err) {
+        const msg = err?.message || String(err) || 'Erro ao conectar com backend GAS.';
+        showSetupAction.value = /setupSpreadsheet|Aba obrigatória/i.test(msg);
+        setAuthState('error', msg);
+      } finally {
+        loading.value = false;
+      }
     }
 
     function demoLogin() {
@@ -1723,7 +1785,8 @@ createApp({
     }
 
     function doLogout() {
-      authenticated.value = false;
+      sessionToken.value = '';
+      setAuthState('unauthenticated');
       loginEmail.value = ''; loginPass.value = '';
     }
 
@@ -1829,13 +1892,21 @@ createApp({
       }, 1200);
     }
 
-    function runSetup() {
+    async function runSetup() {
       loading.value = true;
-      // Em produção: google.script.run.setupSpreadsheet()
-      setTimeout(() => {
+      try {
+        const res = await callBackend('setupSpreadsheet');
+        if (!res?.sucesso) {
+          alert(res?.erro || 'Falha ao executar setup.');
+          return;
+        }
+        showSetupAction.value = false;
+        setAuthState('unauthenticated', 'Setup concluído. Faça login para continuar.');
+      } catch (err) {
+        alert('Erro ao executar setup: ' + (err?.message || err));
+      } finally {
         loading.value = false;
-        alert('Setup executado!\n\nAbas criadas no Google Sheets:\n• consultores\n• clientes\n• diagnosticos\n• tarefas_5w2h\n• financeiro');
-      }, 1500);
+      }
     }
 
     /* HELPERS */
@@ -1863,13 +1934,32 @@ createApp({
       ];
     }
 
-    onMounted(() => {
-      // Em produção, verificar sessão com:
-      // google.script.run.withSuccessHandler(onAuthCheck).verificarSessao()
+    onMounted(async () => {
+      setAuthState('booting');
+
+      if (!hasGasRuntime()) {
+        setAuthState('error', 'Ambiente local detectado. Abra o sistema pelo Web App do Google Apps Script.');
+        return;
+      }
+
+      try {
+        const res = await callBackend('api', { modulo: 'setup', acao: 'validarSchema' });
+        if (!res?.sucesso || !res?.dados?.ok) {
+          showSetupAction.value = true;
+          const detalhes = res?.dados?.detalhes?.length ? ` Pendências: ${res.dados.detalhes.map(d => d.aba + ' (' + d.status + ')').join(', ')}` : '';
+          setAuthState('error', `Estrutura de banco incompleta. Execute setupSpreadsheet().${detalhes}`);
+          return;
+        }
+      } catch (err) {
+        setAuthState('error', `Não foi possível validar schema: ${err?.message || err}`);
+        return;
+      }
+
+      setAuthState('unauthenticated');
     });
 
     return {
-      loading, authenticated, loginEmail, loginPass, loginError,
+      loading, appState, authenticated, showSetupAction, sessionToken, loginEmail, loginPass, loginError,
       currentPage, pageTitle, modal, busca, diagTab, filtroCliente,
       portalClienteId, linkPortal, showPortalPreview, tarefaSelecionada,
       user, clientes, tarefas, form, formTarefa, formDiag,
