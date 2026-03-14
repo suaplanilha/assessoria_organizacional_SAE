@@ -51,11 +51,12 @@ function getSpreadsheet() {
  * GET — Serve o HTML do frontend
  */
 function doGet(e) {
-  const page = e.parameter.page || 'app';
+  const req = e || { parameter: {} };
+  const page = req.parameter.page || 'app';
 
   if (page === 'portal') {
     // Portal do cliente via token
-    return servirPortalCliente(e.parameter.token, e.parameter.consultor);
+    return servirPortalCliente(req.parameter.token, req.parameter.consultor);
   }
 
   const template = HtmlService.createTemplateFromFile('index');
@@ -297,7 +298,8 @@ function verificarSessao(token) {
     const idxAtivo    = headers.indexOf('ativo');
 
     for (let i = 1; i < rows.length; i++) {
-      if (rows[i][idxToken] === token && rows[i][idxAtivo] === true) {
+      const ativo = rows[i][idxAtivo] === true || rows[i][idxAtivo] === 'TRUE';
+      if (rows[i][idxToken] === token && ativo) {
         const expira = new Date(rows[i][idxExpires]);
         if (expira > new Date()) return rows[i][idxConsId];
       }
@@ -1026,8 +1028,8 @@ function api(params) {
 
   const roteamento = {
     auth: {
-      login: autenticarConsultor,
-      verificar: verificarSessao,
+      login: () => autenticarConsultor(dados),
+      verificar: () => verificarSessao(token),
     },
     clientes: {
       listar: () => listarClientes(token),
