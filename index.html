@@ -1778,10 +1778,10 @@ createApp({
         const cfg = applyInterceptors(requestInterceptors, {
           methodName,
           payload,
-          retries: Number(options.retries ?? 1),
-          timeoutMs: Number(options.timeoutMs ?? 15000),
+          retries: Number(options.retries !== undefined ? options.retries : 1),
+          timeoutMs: Number(options.timeoutMs !== undefined ? options.timeoutMs : 15000),
           cacheKey: options.cacheKey || null,
-          cacheTtlMs: Number(options.cacheTtlMs ?? 0),
+          cacheTtlMs: Number(options.cacheTtlMs !== undefined ? options.cacheTtlMs : 0),
           silent: !!options.silent
         });
 
@@ -1852,8 +1852,8 @@ createApp({
 
       try {
         const res = await gasClient.call('autenticarConsultor', { email: loginEmail.value, senha: loginPass.value }, { retries: 1, timeoutMs: 20000 });
-        if (!res?.sucesso) {
-          const erroMsg = res?.erro || 'Falha ao autenticar. Verifique seus dados.';
+        if (!res || !res.sucesso) {
+          const erroMsg = (res && res.erro) || 'Falha ao autenticar. Verifique seus dados.';
           showSetupAction.value = /Aba obrigatória não encontrada|setupSpreadsheet/i.test(erroMsg);
           setAuthState('error', erroMsg);
           return;
@@ -1872,7 +1872,7 @@ createApp({
         setAuthState('authenticated');
         setTimeout(initCharts, 300);
       } catch (err) {
-        const msg = err?.message || String(err) || 'Erro ao conectar com backend GAS.';
+        const msg = (err && err.message) || String(err) || 'Erro ao conectar com backend GAS.';
         showSetupAction.value = /setupSpreadsheet|Aba obrigatória/i.test(msg);
         setAuthState('error', msg);
       } finally {
@@ -1896,7 +1896,7 @@ createApp({
     function openModal(name, data = null) {
       modal.value = name;
       if (name === 'verTarefa' && data) tarefaSelecionada.value = data;
-      if (name === 'novaTarefa' && data?.status) formTarefa.value.status = data.status;
+      if (name === 'novaTarefa' && data && data.status) formTarefa.value.status = data.status;
     }
     function closeModal() {
       modal.value = null;
@@ -1946,7 +1946,7 @@ createApp({
       loading.value = true;
       setTimeout(() => {
         const score = Math.round(questionario5S.value.reduce((a, q) => a + (q.resposta || 0), 0) / (questionario5S.value.length * 5) * 100);
-        alert(`Score calculado: ${score}% · Diagnóstico salvo no Google Sheets`);
+        alert('Score calculado: ' + score + '% · Diagnóstico salvo no Google Sheets');
         loading.value = false;
         diagTab.value = 'resultados';
         setTimeout(initCharts, 200);
@@ -1967,7 +1967,7 @@ createApp({
       if (!portalClienteId.value) return;
       const c = clientes.value.find(x => x.uuid === portalClienteId.value);
       clienteSelecionado.value = c;
-      linkPortal.value = `https://script.google.com/macros/s/AKfycb.../exec?token=${btoa(portalClienteId.value)}&consultor=${user.value.email}`;
+      linkPortal.value = 'https://script.google.com/macros/s/AKfycb.../exec?token=' + btoa(portalClienteId.value) + '&consultor=' + user.value.email;
     }
 
     function verPreviewPortal() {
@@ -1998,14 +1998,14 @@ createApp({
       loading.value = true;
       try {
         const res = await gasClient.call('setupSpreadsheet', undefined, { retries: 0, timeoutMs: 30000 });
-        if (!res?.sucesso) {
-          alert(res?.erro || 'Falha ao executar setup.');
+        if (!res || !res.sucesso) {
+          alert((res && res.erro) || 'Falha ao executar setup.');
           return;
         }
         showSetupAction.value = false;
         setAuthState('unauthenticated', 'Setup concluído. Faça login para continuar.');
       } catch (err) {
-        alert('Erro ao executar setup: ' + (err?.message || err));
+        alert('Erro ao executar setup: ' + ((err && err.message) || err));
       } finally {
         loading.value = false;
       }
@@ -2046,14 +2046,14 @@ createApp({
 
       try {
         const res = await gasClient.api({ modulo: 'setup', acao: 'validarSchema' }, { retries: 0, cacheKey: 'setup.validarSchema', cacheTtlMs: 15000 });
-        if (!res?.sucesso || !res?.dados?.ok) {
+        if (!res || !res.sucesso || !res.dados || !res.dados.ok) {
           showSetupAction.value = true;
-          const detalhes = res?.dados?.detalhes?.length ? ` Pendências: ${res.dados.detalhes.map(d => d.aba + ' (' + d.status + ')').join(', ')}` : '';
-          setAuthState('error', `Estrutura de banco incompleta. Execute setupSpreadsheet().${detalhes}`);
+          const detalhes = (res && res.dados && res.dados.detalhes && res.dados.detalhes.length) ? ' Pendências: ' + res.dados.detalhes.map(function(d){ return d.aba + ' (' + d.status + ')'; }).join(', ') : '';
+          setAuthState('error', 'Estrutura de banco incompleta. Execute setupSpreadsheet().' + detalhes);
           return;
         }
       } catch (err) {
-        setAuthState('error', `Não foi possível validar schema: ${err?.message || err}`);
+        setAuthState('error', 'Não foi possível validar schema: ' + ((err && err.message) || err));
         return;
       }
 
