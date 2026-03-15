@@ -695,7 +695,16 @@ function listarClientes(token, opts = {}) {
   const cacheVer = getConsultorCacheVersion(consultorId);
   const cacheKey = `clientes:${consultorId}:v${cacheVer}:p${pag.page}:s${pag.pageSize}:q${opts.query || ''}`;
   const cacheHit = getCacheJSON(cacheKey);
-  if (cacheHit) return cacheHit;
+  if (cacheHit) {
+    logEstruturado('clientes.listar.result', {
+      fonte: 'cache',
+      consultor_id: consultorId,
+      page: pag.page,
+      pageSize: pag.pageSize,
+      total: cacheHit.paginacao && cacheHit.paginacao.total
+    });
+    return cacheHit;
+  }
 
   const sheetInfo = getSheetOrFail('clientes');
   if (sheetInfo.error) return sheetInfo.error;
@@ -910,7 +919,17 @@ function listarTarefas(token, clienteId = null, opts = {}) {
   const cacheVer = getConsultorCacheVersion(consultorId);
   const cacheKey = `tarefas:${consultorId}:v${cacheVer}:${clienteId || 'all'}:p${pag.page}:s${pag.pageSize}`;
   const cacheHit = getCacheJSON(cacheKey);
-  if (cacheHit) return cacheHit;
+  if (cacheHit) {
+    logEstruturado('tarefas.listar.result', {
+      fonte: 'cache',
+      consultor_id: consultorId,
+      cliente_id: normalizeIdSafe(clienteId) || 'all',
+      page: pag.page,
+      pageSize: pag.pageSize,
+      total: cacheHit.paginacao && cacheHit.paginacao.total
+    });
+    return cacheHit;
+  }
 
   const sheetInfo = getSheetOrFail('tarefas_5w2h');
   if (sheetInfo.error) return sheetInfo.error;
@@ -935,6 +954,15 @@ function listarTarefas(token, clienteId = null, opts = {}) {
   };
 
   const resposta = { sucesso: true, tarefas, paginacao };
+  logEstruturado('tarefas.listar.result', {
+    fonte: 'sheet',
+    consultor_id: consultorId,
+    cliente_id: normalizeIdSafe(clienteId) || 'all',
+    page: pag.page,
+    pageSize: pag.pageSize,
+    total,
+    retornadas: tarefas.length
+  });
   setCacheJSON(cacheKey, resposta, CACHE_TTL_LISTA);
   return resposta;
 }
@@ -1484,7 +1512,10 @@ function getDashboardKPIs(token) {
   const cacheVer = getConsultorCacheVersion(consultorId);
   const cacheKey = `dashboard:kpis:${consultorId}:v${cacheVer}`;
   const cacheHit = getCacheJSON(cacheKey);
-  if (cacheHit) return cacheHit;
+  if (cacheHit) {
+    logEstruturado('dashboard.kpis.result', { fonte: 'cache', consultor_id: consultorId });
+    return cacheHit;
+  }
 
   const cInfo = getSheetOrFail('clientes');
   const tInfo = getSheetOrFail('tarefas_5w2h');
@@ -1643,6 +1674,69 @@ function runApiContractTests() {
       expect(typeof res.erro === 'string' && res.erro.length > 0, `contrato_${modulo}_${acao}_erro_string`, JSON.stringify(res));
     }
   });
+
+
+  let tokenValido = null;
+  let clienteId = null;
+  let tarefaId = null;
+  const emailTeste = 'contract.tarefas@sae.app';
+  const senhaTeste = 'Contrato#2026';
+
+  const cadastro = cadastrarConsultor({ nome: 'Contract Bot', email: emailTeste, senha: senhaTeste });
+  if (cadastro && cadastro.sucesso) {
+    tokenValido = cadastro.token;
+  } else {
+    const login = autenticarConsultor({ email: emailTeste, senha: senhaTeste });
+    if (login && login.sucesso) tokenValido = login.token;
+  }
+
+  if (tokenValido) {
+    const cliente = salvarCliente(tokenValido, {
+      empresa_nome: 'Cliente Contrato API',
+      segmento: 'Teste',
+      status: 'active',
+      responsavel: 'QA Contract'
+    });
+    if (cliente && cliente.sucesso) clienteId = cliente.uuid;
+
+    const salvarSemCliente = api({
+      modulo: 'tarefas',
+      acao: 'salvar',
+      token: tokenValido,
+      dados: { descricao: 'Teste sem cliente', status: 'iniciar' }
+    });
+    expect(
+      salvarSemCliente && salvarSemCliente.sucesso === false && /Cliente é obrigatório/i.test(salvarSemCliente.erro || ''),
+      'tarefas_salvar_sem_cliente_id_falha',
+      JSON.stringify(salvarSemCliente)
+    );
+
+    if (clienteId) {
+      const tarefa = salvarTarefa(tokenValido, {
+        cliente_id: clienteId,
+        descricao: 'Tarefa contrato listar não vazio',
+        responsavel: 'QA',
+        status: 'iniciar',
+        tipo: 'Processo'
+      });
+      if (tarefa && tarefa.sucesso) tarefaId = tarefa.uuid;
+    }
+
+    const listarValido = api({
+      modulo: 'tarefas',
+      acao: 'listar',
+      token: tokenValido,
+      dados: { page: 1, pageSize: 50, cliente_id: clienteId }
+    });
+
+    expect(
+      listarValido && listarValido.sucesso === true && Array.isArray(listarValido.tarefas) && listarValido.tarefas.length > 0,
+      'tarefas_listar_token_valido_retorna_nao_vazio',
+      JSON.stringify({ sucesso: listarValido && listarValido.sucesso, total: listarValido && listarValido.tarefas ? listarValido.tarefas.length : 0, clienteId, tarefaId })
+    );
+  } else {
+    expect(false, 'tarefas_listar_token_valido_retorna_nao_vazio', 'Não foi possível criar/login usuário de contrato');
+  }
 
   const schemaCheck = api({ modulo: 'setup', acao: 'validarSchema' });
   expect(schemaCheck && typeof schemaCheck.sucesso === 'boolean', 'setup_validarSchema_contrato', JSON.stringify(schemaCheck));

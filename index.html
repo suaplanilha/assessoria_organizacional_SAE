@@ -1613,6 +1613,7 @@ createApp({
     const tarefaSelecionada = ref(null);
     const toasts = ref([]);
     const systemModal = ref({ open: false, title: '', message: '' });
+    const LIST_PAGE_SIZE = 200;
 
     const user = ref({ nome: 'Apollo Consultor', email: 'apollo@sae.app', plano: 'Pro', initials: 'AC' });
 
@@ -2071,14 +2072,14 @@ createApp({
     function refreshClientes(token, silent) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
-      return gasClient.api({ modulo: 'clientes', acao: 'listar', token: t, dados: { page: 1, pageSize: 200 } }, { retries: 0, silent: !!silent })
+      return gasClient.api({ modulo: 'clientes', acao: 'listar', token: t, dados: { page: 1, pageSize: LIST_PAGE_SIZE } }, { retries: 0, silent: !!silent })
         .then(function(res) { clientes.value = (res && res.clientes) ? res.clientes : []; });
     }
 
     function refreshTarefas(token, silent) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
-      return gasClient.api({ modulo: 'tarefas', acao: 'listar', token: t, dados: { page: 1, pageSize: 200 } }, { retries: 0, silent: !!silent })
+      return gasClient.api({ modulo: 'tarefas', acao: 'listar', token: t, dados: { page: 1, pageSize: LIST_PAGE_SIZE } }, { retries: 0, silent: !!silent })
         .then(function(res) {
           const incoming = (res && res.tarefas) ? res.tarefas : [];
           tarefas.value = incoming.map(function(task) {
