@@ -38,7 +38,8 @@ const SCHEMA_VERSION = '1.0.0';
 const SHEET_SCHEMAS = {
   consultores: [
     'uuid', 'nome', 'email', 'email_hash', 'senha_hash', 'plano_saas',
-    'data_adesao', 'ativo', 'configuracoes_json'
+    'data_adesao', 'ativo', 'configuracoes_json',
+    'reset_token_hash', 'reset_expira_iso', 'reset_solicitado_em'
   ],
   clientes: [
     'uuid', 'consultor_id', 'empresa_nome', 'segmento',
@@ -314,6 +315,25 @@ function hashEmail(email) {
   return digest.map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
 }
 
+
+function hashTexto(valor) {
+  const raw = String(valor || '') + SECRET_SALT;
+  const digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    raw,
+    Utilities.Charset.UTF_8
+  );
+  return digest.map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
+}
+
+function getWebAppUrlSafe() {
+  try {
+    return ScriptApp.getService().getUrl() || '';
+  } catch (err) {
+    return '';
+  }
+}
+
 /**
  * Gera UUID v4
  */
@@ -411,7 +431,10 @@ function cadastrarConsultor(dados) {
     'Pro',
     new Date().toISOString(),
     true,
-    JSON.stringify({ tema: 'dark', notificacoes: true })
+    JSON.stringify({ tema: 'dark', notificacoes: true }),
+    '',
+    '',
+    ''
   ]);
 
   const token = criarSessao(uuid, emailHash);
@@ -421,6 +444,115 @@ function cadastrarConsultor(dados) {
     token,
     mensagem: 'Conta criada com sucesso'
   };
+}
+
+
+function solicitarResetSenha(dados) {
+  try {
+    const email = String((dados && dados.email) || '').trim();
+    if (!email) return falha('Informe o e-mail para recuperação.');
+
+    const sheetInfo = getSheetOrFail('consultores');
+    if (sheetInfo.error) return sheetInfo.error;
+    const sheet = sheetInfo.sheet;
+    const snapshot = getSheetSnapshot(sheet);
+    const headers = snapshot.headers;
+    const idxEmail = headers.indexOf('email');
+    const idxEmailHash = headers.indexOf('email_hash');
+    const idxAtivo = headers.indexOf('ativo');
+    const idxTokenHash = headers.indexOf('reset_token_hash');
+    const idxExpira = headers.indexOf('reset_expira_iso');
+    const idxSolicitado = headers.indexOf('reset_solicitado_em');
+
+    if ([idxEmail, idxEmailHash, idxAtivo, idxTokenHash, idxExpira, idxSolicitado].some(i => i < 0)) {
+      return falha('Schema desatualizado em consultores. Execute setupSpreadsheet().');
+    }
+
+    const emailHash = hashEmail(email);
+    const rowIdx = snapshot.rows.findIndex(r => r[idxEmailHash] === emailHash && toBooleanSafe(r[idxAtivo]));
+
+    // Sempre retorna sucesso para evitar enumeração de contas.
+    if (rowIdx < 0) {
+      logEstruturado('auth.reset.request.unknown_email', { email_hash: emailHash.slice(0, 8) + '...' }, 'WARN');
+      return sucesso({ mensagem: 'Se o e-mail existir, enviaremos as instruções de recuperação.' });
+    }
+
+    const sheetRow = rowIdx + 2;
+    const token = Utilities.base64EncodeWebSafe(gerarUUID() + ':' + new Date().getTime());
+    const tokenHash = hashTexto(token);
+    const expira = new Date(Date.now() + (60 * 60 * 1000)); // 1 hora
+
+    sheet.getRange(sheetRow, idxTokenHash + 1).setValue(tokenHash);
+    sheet.getRange(sheetRow, idxExpira + 1).setValue(expira.toISOString());
+    sheet.getRange(sheetRow, idxSolicitado + 1).setValue(new Date().toISOString());
+
+    const emailDestino = String(snapshot.rows[rowIdx][idxEmail] || email).trim();
+    const appUrl = getWebAppUrlSafe();
+    const linkReset = appUrl ? `${appUrl}?mode=reset&token=${encodeURIComponent(token)}` : '';
+
+    const assunto = 'SAE Apollo — Recuperação de senha';
+    const corpo = [
+      `Olá,`,
+      '',
+      'Recebemos uma solicitação para redefinir sua senha no SAE.',
+      `Código de recuperação: ${token}`,
+      linkReset ? `Link direto: ${linkReset}` : 'Abra o SAE e selecione "Esqueci minha senha" para usar o código.',
+      '',
+      'Este código expira em 1 hora.',
+      'Se você não solicitou a recuperação, ignore este e-mail.'
+    ].join('\n');
+
+    MailApp.sendEmail(emailDestino, assunto, corpo);
+    logEstruturado('auth.reset.request.sent', { email_hash: emailHash.slice(0, 8) + '...' });
+    return sucesso({ mensagem: 'Se o e-mail existir, enviaremos as instruções de recuperação.' });
+  } catch (err) {
+    logEstruturado('auth.reset.request.exception', { mensagem: err.message }, 'ERROR');
+    return falha('Não foi possível processar a recuperação de senha.');
+  }
+}
+
+function redefinirSenha(dados) {
+  try {
+    const token = String((dados && dados.token) || '').trim();
+    const novaSenha = String((dados && dados.novaSenha) || '').trim();
+
+    if (!token || !novaSenha) return falha('Token e nova senha são obrigatórios.');
+    if (novaSenha.length < 6) return falha('A nova senha deve ter no mínimo 6 caracteres.');
+
+    const sheetInfo = getSheetOrFail('consultores');
+    if (sheetInfo.error) return sheetInfo.error;
+    const sheet = sheetInfo.sheet;
+    const snapshot = getSheetSnapshot(sheet);
+    const headers = snapshot.headers;
+
+    const idxSenha = headers.indexOf('senha_hash');
+    const idxTokenHash = headers.indexOf('reset_token_hash');
+    const idxExpira = headers.indexOf('reset_expira_iso');
+    if ([idxSenha, idxTokenHash, idxExpira].some(i => i < 0)) {
+      return falha('Schema desatualizado em consultores. Execute setupSpreadsheet().');
+    }
+
+    const tokenHash = hashTexto(token);
+    const rowIdx = snapshot.rows.findIndex(r => r[idxTokenHash] === tokenHash);
+    if (rowIdx < 0) return falha('Código de recuperação inválido.');
+
+    const row = snapshot.rows[rowIdx];
+    const expira = new Date(row[idxExpira]);
+    if (Number.isNaN(expira.getTime()) || expira.getTime() < Date.now()) {
+      return falha('Código de recuperação expirado. Solicite novamente.');
+    }
+
+    const sheetRow = rowIdx + 2;
+    sheet.getRange(sheetRow, idxSenha + 1).setValue(hashEmail(novaSenha));
+    sheet.getRange(sheetRow, idxTokenHash + 1).setValue('');
+    sheet.getRange(sheetRow, idxExpira + 1).setValue('');
+
+    logEstruturado('auth.reset.password.updated', { row: sheetRow });
+    return sucesso({ mensagem: 'Senha redefinida com sucesso.' });
+  } catch (err) {
+    logEstruturado('auth.reset.password.exception', { mensagem: err.message }, 'ERROR');
+    return falha('Não foi possível redefinir a senha.');
+  }
 }
 
 /**
@@ -1305,6 +1437,8 @@ function api(params) {
     auth: {
       login: () => autenticarConsultor(dados),
       cadastro: () => cadastrarConsultor(dados),
+      solicitarReset: () => solicitarResetSenha(dados),
+      redefinirSenha: () => redefinirSenha(dados),
       verificar: () => { const consultorId = verificarSessao(token); return { sucesso: !!consultorId, consultor_id: consultorId }; },
     },
     clientes: {

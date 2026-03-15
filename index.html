@@ -13,16 +13,16 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg-base: #0f172a;
-  --bg-surface: rgba(15, 23, 42, 0.8);
-  --bg-card: rgba(30, 41, 59, 0.6);
-  --bg-card-hover: rgba(30, 41, 59, 0.85);
-  --bg-glass: rgba(255,255,255,0.04);
-  --bg-glass-hover: rgba(255,255,255,0.08);
-  --border: rgba(255,255,255,0.08);
+  --bg-surface: rgba(15, 23, 42, 0.92);
+  --bg-card: rgba(30, 41, 59, 0.88);
+  --bg-card-hover: rgba(51, 65, 85, 0.96);
+  --bg-glass: rgba(255,255,255,0.09);
+  --bg-glass-hover: rgba(255,255,255,0.14);
+  --border: rgba(255,255,255,0.16);
   --border-accent: rgba(99,102,241,0.4);
   --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #475569;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
   --accent: #6366f1;
   --accent-2: #8b5cf6;
   --accent-glow: rgba(99,102,241,0.15);
@@ -40,6 +40,23 @@
   --blur: blur(20px);
   --shadow: 0 8px 32px rgba(0,0,0,0.4);
   --shadow-sm: 0 2px 12px rgba(0,0,0,0.3);
+}
+
+[data-theme="light"] {
+  --bg-base: #f8fafc;
+  --bg-surface: rgba(255, 255, 255, 0.96);
+  --bg-card: rgba(255, 255, 255, 0.95);
+  --bg-card-hover: rgba(255, 255, 255, 1);
+  --bg-glass: rgba(15, 23, 42, 0.05);
+  --bg-glass-hover: rgba(15, 23, 42, 0.1);
+  --border: rgba(15, 23, 42, 0.16);
+  --border-accent: rgba(79, 70, 229, 0.35);
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --accent-glow: rgba(79,70,229,0.12);
+  --shadow: 0 10px 30px rgba(15,23,42,0.12);
+  --shadow-sm: 0 4px 18px rgba(15,23,42,0.14);
 }
 html, body { height: 100%; overflow: hidden; }
 body {
@@ -466,6 +483,14 @@ tr:last-child td { border-bottom: none; }
 .login-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(99,102,241,0.4); }
 .login-divider { text-align: center; color: var(--text-muted); font-size: 12px; margin: 18px 0; }
 
+.login-actions { display:flex; justify-content:space-between; gap:8px; margin-top:10px; }
+.login-link-btn {
+  background: transparent; border: none; color: var(--accent); cursor: pointer;
+  font-size: 12px; font-weight: 500; padding: 0;
+}
+.login-link-btn:hover { text-decoration: underline; }
+
+
 /* ===== SKELETON ===== */
 .skeleton {
   background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
@@ -611,6 +636,9 @@ tr:last-child td { border-bottom: none; }
   <!-- LOGIN -->
   <div class="login-wrap" v-if="appState!=='authenticated'">
     <div class="login-box">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+        <button class="btn btn-ghost btn-sm" @click="toggleTheme">{{ currentTheme==='dark' ? '☀️ Tema claro' : '🌙 Tema escuro' }}</button>
+      </div>
       <div class="login-logo">
         <span class="login-apollo">🐾</span>
         <div class="login-title">SAE</div>
@@ -632,6 +660,28 @@ tr:last-child td { border-bottom: none; }
         </div>
       </template>
 
+      <template v-else-if="authMode==='forgot'">
+        <div class="form-group">
+          <label class="form-label">E-mail cadastrado</label>
+          <input class="form-input" type="email" v-model="resetEmail" placeholder="seu@email.com" @keyup.enter="requestPasswordReset">
+        </div>
+      </template>
+
+      <template v-else-if="authMode==='reset'">
+        <div class="form-group">
+          <label class="form-label">Código de recuperação</label>
+          <input class="form-input" type="text" v-model="resetToken" placeholder="Cole o código recebido por e-mail">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nova senha</label>
+          <input class="form-input" type="password" v-model="resetPass" placeholder="Mínimo 6 caracteres" @keyup.enter="confirmPasswordReset">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Confirmar nova senha</label>
+          <input class="form-input" type="password" v-model="resetPassConfirm" placeholder="Repita a nova senha" @keyup.enter="confirmPasswordReset">
+        </div>
+      </template>
+
       <template v-else>
         <div class="form-group">
           <label class="form-label">Nome</label>
@@ -649,9 +699,14 @@ tr:last-child td { border-bottom: none; }
 
       <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 12px;" v-if="appState==='booting'">Validando sessão...</div>
       <div style="color: var(--rose); font-size: 12px; margin-bottom: 12px;" v-if="loginError">{{ loginError }}</div>
-      <button class="login-btn" @click="authMode==='login' ? doLogin() : doSignup()" :disabled="appState==='booting'">
-        {{ authMode==='login' ? 'Entrar no Sistema' : 'Criar conta e entrar' }}
+      <button class="login-btn" @click="submitAuth()" :disabled="appState==='booting'">
+        {{ authPrimaryButtonLabel }}
       </button>
+      <div class="login-actions">
+        <button class="login-link-btn" v-if="authMode==='login'" @click="authMode='forgot'">Esqueci minha senha</button>
+        <button class="login-link-btn" v-if="authMode==='forgot'" @click="authMode='reset'">Já tenho o código</button>
+        <button class="login-link-btn" v-if="authMode==='forgot' || authMode==='reset'" @click="authMode='login'">Voltar ao login</button>
+      </div>
       <button class="btn btn-ghost" style="width:100%; justify-content:center; margin-top:8px;" @click="runSetup" v-if="showSetupAction">
         🛠️ Executar setupSpreadsheet()
       </button>
@@ -744,6 +799,7 @@ tr:last-child td { border-bottom: none; }
           <template v-if="currentPage==='diagnostico'">
             <button class="btn btn-primary" @click="openModal('novoDiagnostico')">+ Diagnóstico</button>
           </template>
+          <button class="btn btn-ghost btn-sm" @click="toggleTheme">{{ currentTheme==='dark' ? '☀️ Claro' : '🌙 Escuro' }}</button>
           <button class="btn btn-ghost btn-sm" @click="doLogout">Sair</button>
         </div>
       </div>
@@ -1504,7 +1560,12 @@ createApp({
     const signupNome = ref('');
     const signupEmail = ref('');
     const signupPass = ref('');
+    const resetEmail = ref('');
+    const resetToken = ref('');
+    const resetPass = ref('');
+    const resetPassConfirm = ref('');
     const loginError = ref('');
+    const currentTheme = ref('dark');
     const currentPage = ref('dashboard');
     const modal = ref(null);
     const busca = ref('');
@@ -1542,6 +1603,14 @@ createApp({
       tarefasConcluidas: tarefas.value.filter(t => t.status === 'concluido').length,
       receita: clientes.value.filter(c=>c.status==='active').reduce((a,c)=>a+parseFloat(c.mensalidade.replace('.','').replace(',','.')),0).toLocaleString('pt-BR')
     }));
+
+
+    const authPrimaryButtonLabel = computed(() => {
+      if (authMode.value === 'login') return 'Entrar no Sistema';
+      if (authMode.value === 'signup') return 'Criar conta e entrar';
+      if (authMode.value === 'forgot') return 'Enviar código de recuperação';
+      return 'Redefinir senha';
+    });
 
     /* DIAGNÓSTICO */
     const diagnosticos = ref([]);
@@ -1595,7 +1664,7 @@ createApp({
 
     /* CONFIG */
     const sheetsConfig = [
-      { nome: 'consultores', cols: 'uuid · nome · email_hash · plano_saas · data_adesao' },
+      { nome: 'consultores', cols: 'uuid · nome · email · email_hash · senha_hash · reset_token_hash · reset_expira_iso' },
       { nome: 'clientes', cols: 'uuid · consultor_id · empresa_nome · segmento · status' },
       { nome: 'diagnosticos', cols: 'uuid · cliente_id · tipo_matriz · respostas_json · score' },
       { nome: 'tarefas_5w2h', cols: 'uuid · cliente_id · descricao · responsavel · prazo_iso · status' },
@@ -1953,6 +2022,76 @@ createApp({
         .then(function(res) { pagamentos.value = (res && res.registros) ? res.registros : []; });
     }
 
+    function applyTheme(theme) {
+      const next = theme === 'light' ? 'light' : 'dark';
+      currentTheme.value = next;
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('sae_theme', next); } catch (err) {}
+    }
+
+    function toggleTheme() {
+      applyTheme(currentTheme.value === 'dark' ? 'light' : 'dark');
+      notify('Tema ' + (currentTheme.value === 'dark' ? 'escuro' : 'claro') + ' ativado.', 'info');
+    }
+
+    function submitAuth() {
+      if (authMode.value === 'login') return doLogin();
+      if (authMode.value === 'signup') return doSignup();
+      if (authMode.value === 'forgot') return requestPasswordReset();
+      return confirmPasswordReset();
+    }
+
+    async function requestPasswordReset() {
+      if (!resetEmail.value) {
+        loginError.value = 'Informe seu e-mail para recuperar a senha.';
+        return;
+      }
+      loading.value = true;
+      loginError.value = '';
+      try {
+        const res = await gasClient.api({ modulo: 'auth', acao: 'solicitarReset', dados: { email: resetEmail.value } }, { retries: 0, timeoutMs: 20000 });
+        if (!res || !res.sucesso) {
+          loginError.value = (res && res.erro) || 'Não foi possível enviar o código de recuperação.';
+          return;
+        }
+        notify((res && res.dados && res.dados.mensagem) || 'Instruções enviadas por e-mail.', 'success');
+        authMode.value = 'reset';
+      } catch (err) {
+        loginError.value = (err && err.message) || 'Erro ao solicitar recuperação de senha.';
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    async function confirmPasswordReset() {
+      if (!resetToken.value || !resetPass.value || !resetPassConfirm.value) {
+        loginError.value = 'Preencha código, nova senha e confirmação.';
+        return;
+      }
+      if (resetPass.value !== resetPassConfirm.value) {
+        loginError.value = 'A confirmação da senha não confere.';
+        return;
+      }
+      loading.value = true;
+      loginError.value = '';
+      try {
+        const res = await gasClient.api({ modulo: 'auth', acao: 'redefinirSenha', dados: { token: resetToken.value, novaSenha: resetPass.value } }, { retries: 0, timeoutMs: 20000 });
+        if (!res || !res.sucesso) {
+          loginError.value = (res && res.erro) || 'Não foi possível redefinir a senha.';
+          return;
+        }
+        notify((res && res.dados && res.dados.mensagem) || 'Senha redefinida com sucesso.', 'success');
+        resetPass.value = '';
+        resetPassConfirm.value = '';
+        resetToken.value = '';
+        authMode.value = 'login';
+      } catch (err) {
+        loginError.value = (err && err.message) || 'Erro ao redefinir senha.';
+      } finally {
+        loading.value = false;
+      }
+    }
+
     /* AUTH */
     async function doLogin() {
       if (!loginEmail.value || !loginPass.value) {
@@ -2273,6 +2412,23 @@ createApp({
     }
 
     onMounted(async () => {
+      try {
+        const savedTheme = localStorage.getItem('sae_theme');
+        applyTheme(savedTheme || 'dark');
+      } catch (err) {
+        applyTheme('dark');
+      }
+
+      try {
+        const params = new URLSearchParams(window.location.search || '');
+        const modeParam = params.get('mode');
+        const tokenParam = params.get('token');
+        if (modeParam === 'reset') {
+          authMode.value = 'reset';
+          if (tokenParam) resetToken.value = tokenParam;
+        }
+      } catch (err) {}
+
       setAuthState('booting');
 
       if (!hasGasRuntime()) {
@@ -2299,6 +2455,8 @@ createApp({
     return {
       loading, appState, authenticated, showSetupAction, authMode, sessionToken,
       loginEmail, loginPass, signupNome, signupEmail, signupPass, loginError,
+      resetEmail, resetToken, resetPass, resetPassConfirm,
+      currentTheme, authPrimaryButtonLabel,
       currentPage, pageTitle, modal, busca, diagTab, filtroCliente,
       portalClienteId, linkPortal, showPortalPreview, tarefaSelecionada, toasts, systemModal,
       user, clientes, tarefas, form, formTarefa, formDiag,
@@ -2306,6 +2464,7 @@ createApp({
       questionario5S, kanbanColunas, tarefasPorStatus, tarefasDoCliente,
       financeiro, pagamentos, metasCliente, tiposRelatorio, sheetsConfig,
       navigate, selectCliente, doLogin, doSignup, doLogout,
+      submitAuth, requestPasswordReset, confirmPasswordReset, toggleTheme,
       openModal, closeModal,
       salvarCliente, salvarTarefa, atualizarTarefa, excluirTarefa,
       salvarDiagnostico, criarDiagnostico, marcarPago,
