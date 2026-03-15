@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SAE — Sistema Apollo Enterprise</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
@@ -31,8 +31,8 @@
   --emerald: #10b981;
   --rose: #f43f5e;
   --cyan: #06b6d4;
-  --font-head: 'Syne', sans-serif;
-  --font-body: 'DM Sans', sans-serif;
+  --font-head: 'Roboto', sans-serif;
+  --font-body: 'Roboto', sans-serif;
   --sidebar-w: 260px;
   --radius: 12px;
   --radius-lg: 18px;
@@ -260,6 +260,8 @@ body {
   display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
   margin-bottom: 24px;
 }
+.chart-box { position: relative; width: 100%; height: 260px; overflow: hidden; }
+.chart-box canvas { width: 100% !important; height: 100% !important; display: block; }
 
 /* ===== DATA TABLE ===== */
 .table-wrap { overflow-x: auto; margin-top: 8px; }
@@ -371,6 +373,7 @@ tr:last-child td { border-bottom: none; }
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 12px;
   cursor: pointer; transition: all 0.15s;
+  color: var(--text-primary);
 }
 .task-card:hover { border-color: rgba(255,255,255,0.15); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 .task-title { font-size: 12px; font-weight: 500; margin-bottom: 6px; line-height: 1.4; }
@@ -451,6 +454,8 @@ tr:last-child td { border-bottom: none; }
 .login-apollo { font-size: 48px; display: block; margin-bottom: 10px; filter: drop-shadow(0 0 15px rgba(99,102,241,0.5)); }
 .login-title { font-family: var(--font-head); font-size: 22px; font-weight: 800; }
 .login-sub { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
+.auth-switch { display: flex; gap: 8px; margin-bottom: 14px; }
+.auth-switch .btn { flex: 1; justify-content: center; }
 .login-btn {
   width: 100%; padding: 12px; border: none; border-radius: 10px;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
@@ -564,20 +569,41 @@ tr:last-child td { border-bottom: none; }
         <div class="login-title">SAE</div>
         <div class="login-sub">Sistema Apollo Enterprise</div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Email do Consultor</label>
-        <input class="form-input" type="email" v-model="loginEmail" placeholder="seu@email.com" @keyup.enter="doLogin">
+      <div class="auth-switch">
+        <button class="btn" :class="authMode==='login' ? 'btn-primary' : 'btn-ghost'" @click="authMode='login'">Entrar</button>
+        <button class="btn" :class="authMode==='signup' ? 'btn-primary' : 'btn-ghost'" @click="authMode='signup'">Criar conta</button>
       </div>
-      <div class="form-group">
-        <label class="form-label">Senha</label>
-        <input class="form-input" type="password" v-model="loginPass" placeholder="••••••••" @keyup.enter="doLogin">
-      </div>
+
+      <template v-if="authMode==='login'">
+        <div class="form-group">
+          <label class="form-label">Email do Consultor</label>
+          <input class="form-input" type="email" v-model="loginEmail" placeholder="seu@email.com" @keyup.enter="doLogin">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Senha</label>
+          <input class="form-input" type="password" v-model="loginPass" placeholder="••••••••" @keyup.enter="doLogin">
+        </div>
+      </template>
+
+      <template v-else>
+        <div class="form-group">
+          <label class="form-label">Nome</label>
+          <input class="form-input" type="text" v-model="signupNome" placeholder="Seu nome completo">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-input" type="email" v-model="signupEmail" placeholder="seu@email.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Senha</label>
+          <input class="form-input" type="password" v-model="signupPass" placeholder="Mínimo 6 caracteres">
+        </div>
+      </template>
+
       <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 12px;" v-if="appState==='booting'">Validando sessão...</div>
       <div style="color: var(--rose); font-size: 12px; margin-bottom: 12px;" v-if="loginError">{{ loginError }}</div>
-      <button class="login-btn" @click="doLogin" :disabled="appState==='booting'">Entrar no Sistema</button>
-      <div class="login-divider">— ou acesse como —</div>
-      <button class="btn btn-ghost" style="width:100%; justify-content:center;" @click="demoLogin" :disabled="appState==='booting'">
-        🚀 Demo: Consultor Apollo
+      <button class="login-btn" @click="authMode==='login' ? doLogin() : doSignup()" :disabled="appState==='booting'">
+        {{ authMode==='login' ? 'Entrar no Sistema' : 'Criar conta e entrar' }}
       </button>
       <button class="btn btn-ghost" style="width:100%; justify-content:center; margin-top:8px;" @click="runSetup" v-if="showSetupAction">
         🛠️ Executar setupSpreadsheet()
@@ -717,14 +743,14 @@ tr:last-child td { border-bottom: none; }
                 <div class="card-title"><span class="card-icon">🕸️</span> Maturidade Organizacional</div>
                 <span style="font-size:11px;color:var(--text-muted);">Média do portfólio</span>
               </div>
-              <canvas id="radarChart" height="220"></canvas>
+              <div class="chart-box"><canvas id="radarChart"></canvas></div>
             </div>
             <div class="card">
               <div class="card-header">
                 <div class="card-title"><span class="card-icon">📊</span> Evolução Mensal</div>
                 <span style="font-size:11px;color:var(--text-muted);">Últimos 6 meses</span>
               </div>
-              <canvas id="barChart" height="220"></canvas>
+              <div class="chart-box"><canvas id="barChart"></canvas></div>
             </div>
           </div>
 
@@ -931,7 +957,7 @@ tr:last-child td { border-bottom: none; }
             <div class="charts-grid">
               <div class="card">
                 <div class="card-title" style="margin-bottom:14px;">🕸️ Radar de Maturidade</div>
-                <canvas id="diagRadar" height="260"></canvas>
+                <div class="chart-box"><canvas id="diagRadar"></canvas></div>
               </div>
               <div class="card">
                 <div class="card-title" style="margin-bottom:14px;">📊 SWOT Matrix</div>
@@ -1417,23 +1443,6 @@ tr:last-child td { border-bottom: none; }
 <script>
 const { createApp, ref, computed, onMounted, watch, nextTick } = Vue;
 
-/* ===== MOCK DATA (substituir por google.script.run em produção) ===== */
-const mockClientes = [
-  { uuid:'c-001', empresa_nome:'TechCorp Ltda', segmento:'Tecnologia', status:'active', responsavel:'João Silva', maturidade:72, mensalidade:'3.500', tarefas_abertas:4 },
-  { uuid:'c-002', empresa_nome:'MedSaúde SA', segmento:'Saúde', status:'active', responsavel:'Ana Costa', maturidade:58, mensalidade:'5.200', tarefas_abertas:7 },
-  { uuid:'c-003', empresa_nome:'VarejoMax', segmento:'Varejo', status:'pending', responsavel:'Pedro Lima', maturidade:34, mensalidade:'2.800', tarefas_abertas:12 },
-  { uuid:'c-004', empresa_nome:'IndusPro Ind.', segmento:'Indústria', status:'active', responsavel:'Maria Souza', maturidade:81, mensalidade:'7.000', tarefas_abertas:2 },
-  { uuid:'c-005', empresa_nome:'EduFuture', segmento:'Educação', status:'paused', responsavel:'Carlos Alves', maturidade:45, mensalidade:'1.800', tarefas_abertas:0 },
-];
-const mockTarefas = [
-  { uuid:'t-001', cliente_id:'c-001', descricao:'Mapear processos de TI', responsavel:'João Silva', prazo_iso:'2026-03-20', status:'execucao', tipo:'Processo', onde:'TI', porque:'Diagnóstico de gaps', como:'Entrevistas', custo:'R$ 0', indicador:'100% processos mapeados' },
-  { uuid:'t-002', cliente_id:'c-001', descricao:'Implantar gestão visual 5S', responsavel:'Ana Costa', prazo_iso:'2026-04-01', status:'iniciar', tipo:'5S', onde:'Operações', porque:'Reduzir desperdícios', como:'Treinamento', custo:'R$ 1.200', indicador:'Auditoria 5S aprovada' },
-  { uuid:'t-003', cliente_id:'c-002', descricao:'Revisar fluxo de atendimento', responsavel:'Pedro Lima', prazo_iso:'2026-03-15', status:'validando', tipo:'Processo', onde:'Recepção', porque:'Reduzir espera', como:'Mapeamento AS-IS/TO-BE', custo:'R$ 500', indicador:'NPS > 80' },
-  { uuid:'t-004', cliente_id:'c-002', descricao:'Treinamento de liderança', responsavel:'Carlos Alves', prazo_iso:'2026-05-10', status:'iniciar', tipo:'RH', onde:'Toda empresa', porque:'Desenvolver gestores', como:'Workshop 40h', custo:'R$ 8.000', indicador:'Avaliação 360° melhora 20%' },
-  { uuid:'t-005', cliente_id:'c-003', descricao:'Reorganização de estoque', responsavel:'Maria Souza', prazo_iso:'2026-02-28', status:'concluido', tipo:'Logística', onde:'Depósito', porque:'Reduzir perdas', como:'Kanban físico', custo:'R$ 2.000', indicador:'Quebra < 1%' },
-  { uuid:'t-006', cliente_id:'c-001', descricao:'Definir OKRs corporativos Q2', responsavel:'João Silva', prazo_iso:'2026-04-15', status:'iniciar', tipo:'Estratégia', onde:'Diretoria', porque:'Alinhamento estratégico', como:'Workshops de OKR', custo:'R$ 600', indicador:'OKRs definidos e comunicados' },
-];
-
 createApp({
   setup() {
     /* STATE */
@@ -1442,8 +1451,12 @@ createApp({
     const authenticated = ref(false);
     const sessionToken = ref('');
     const showSetupAction = ref(false);
+    const authMode = ref('login');
     const loginEmail = ref('');
     const loginPass = ref('');
+    const signupNome = ref('');
+    const signupEmail = ref('');
+    const signupPass = ref('');
     const loginError = ref('');
     const currentPage = ref('dashboard');
     const modal = ref(null);
@@ -1457,8 +1470,8 @@ createApp({
 
     const user = ref({ nome: 'Apollo Consultor', email: 'apollo@sae.app', plano: 'Pro', initials: 'AC' });
 
-    const clientes = ref([...mockClientes]);
-    const tarefas = ref([...mockTarefas]);
+    const clientes = ref([]);
+    const tarefas = ref([]);
 
     const form = ref({ empresa_nome:'', segmento:'Tecnologia', status:'active', responsavel:'', mensalidade:'', obs:'' });
     const formTarefa = ref({ descricao:'', responsavel:'', prazo_iso:'', onde:'', porque:'', como:'', custo:'', indicador:'', cliente_id:'', status:'iniciar', tipo:'Processo' });
@@ -1482,29 +1495,7 @@ createApp({
     }));
 
     /* DIAGNÓSTICO */
-    const diagnosticos = ref([
-      {
-        uuid: 'd-001', tipo_matriz: 'Diagnóstico 5S', icon: '🔍',
-        cliente_nome: 'TechCorp Ltda', score: 68, status: 'Concluído',
-        dimensoes: [
-          { nome: 'Organização', valor: 75, cor: '#6366f1' },
-          { nome: 'Limpeza', valor: 80, cor: '#14b8a6' },
-          { nome: 'Padronização', valor: 55, cor: '#f59e0b' },
-          { nome: 'Disciplina', valor: 62, cor: '#10b981' },
-          { nome: 'Utilização', valor: 70, cor: '#06b6d4' },
-        ]
-      },
-      {
-        uuid: 'd-002', tipo_matriz: 'Clima Organizacional', icon: '🌡️',
-        cliente_nome: 'MedSaúde SA', score: 52, status: 'Em análise',
-        dimensoes: [
-          { nome: 'Motivação', valor: 48, cor: '#f43f5e' },
-          { nome: 'Comunicação', valor: 55, cor: '#6366f1' },
-          { nome: 'Liderança', valor: 60, cor: '#14b8a6' },
-          { nome: 'Cultura', valor: 45, cor: '#f59e0b' },
-        ]
-      }
-    ]);
+    const diagnosticos = ref([]);
 
     const questionario5S = ref([
       { pergunta: 'Os materiais desnecessários são descartados regularmente?', resposta: 0 },
@@ -1535,14 +1526,8 @@ createApp({
     );
 
     /* FINANCEIRO */
-    const financeiro = ref({ receitaTotal: '18.500', inadimplente: '2.800', potencial: '21.300' });
-    const pagamentos = ref([
-      { uuid:'p-001', cliente:'TechCorp Ltda', valor:'3.500', vencimento:'05/03/2026', pago: true },
-      { uuid:'p-002', cliente:'MedSaúde SA', valor:'5.200', vencimento:'10/03/2026', pago: true },
-      { uuid:'p-003', cliente:'VarejoMax', valor:'2.800', vencimento:'15/03/2026', pago: false },
-      { uuid:'p-004', cliente:'IndusPro Ind.', valor:'7.000', vencimento:'01/03/2026', pago: true },
-      { uuid:'p-005', cliente:'EduFuture', valor:'1.800', vencimento:'20/03/2026', pago: false },
-    ]);
+    const financeiro = ref({ receitaTotal: '0', inadimplente: '0', potencial: '0' });
+    const pagamentos = ref([]);
 
     /* PORTAL */
     const metasCliente = [
@@ -1575,6 +1560,10 @@ createApp({
 
     function initCharts() {
       nextTick(() => {
+        const mediaMaturidade = clientes.value.length
+          ? Math.round(clientes.value.reduce(function(acc, c){ return acc + Number(c.maturidade || 0); }, 0) / clientes.value.length)
+          : 0;
+
         // Radar principal
         const rCtx = document.getElementById('radarChart');
         if (rCtx) {
@@ -1585,7 +1574,7 @@ createApp({
               labels: ['Processos', 'Pessoas', 'Tecnologia', 'Liderança', 'Cultura', 'Resultados'],
               datasets: [{
                 label: 'Maturidade Média',
-                data: [68, 75, 52, 80, 61, 73],
+                data: [mediaMaturidade, mediaMaturidade, mediaMaturidade, mediaMaturidade, mediaMaturidade, mediaMaturidade],
                 fill: true,
                 backgroundColor: 'rgba(99,102,241,0.15)',
                 borderColor: '#6366f1',
@@ -1603,9 +1592,10 @@ createApp({
                   ticks: { display: false },
                   grid: { color: 'rgba(255,255,255,0.06)' },
                   angleLines: { color: 'rgba(255,255,255,0.06)' },
-                  pointLabels: { color: '#94a3b8', font: { size: 11, family: 'DM Sans' } }
+                  pointLabels: { color: '#94a3b8', font: { size: 11, family: 'Roboto' } }
                 }
               },
+              animation: { duration: 0 },
               plugins: { legend: { display: false } }
             }
           });
@@ -1621,11 +1611,11 @@ createApp({
               labels: ['Out', 'Nov', 'Dez', 'Jan', 'Fev', 'Mar'],
               datasets: [
                 {
-                  label: 'Clientes', data: [3, 4, 4, 5, 5, 5],
+                  label: 'Clientes', data: [clientes.value.length, clientes.value.length, clientes.value.length, clientes.value.length, clientes.value.length, clientes.value.length],
                   backgroundColor: 'rgba(99,102,241,0.5)', borderRadius: 6, borderSkipped: false
                 },
                 {
-                  label: 'Tarefas concluídas', data: [8, 12, 15, 18, 22, 26],
+                  label: 'Tarefas concluídas', data: [tarefas.value.filter(function(t){ return t.status === 'concluido'; }).length, tarefas.value.filter(function(t){ return t.status === 'concluido'; }).length, tarefas.value.filter(function(t){ return t.status === 'concluido'; }).length, tarefas.value.filter(function(t){ return t.status === 'concluido'; }).length, tarefas.value.filter(function(t){ return t.status === 'concluido'; }).length, tarefas.value.filter(function(t){ return t.status === 'concluido'; }).length],
                   backgroundColor: 'rgba(20,184,166,0.5)', borderRadius: 6, borderSkipped: false
                 }
               ]
@@ -1638,7 +1628,8 @@ createApp({
               scales: {
                 x: { grid: { display: false }, ticks: { color: '#475569' } },
                 y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#475569' } }
-              }
+              },
+              animation: { duration: 0 }
             }
           });
         }
@@ -1647,13 +1638,17 @@ createApp({
         const dCtx = document.getElementById('diagRadar');
         if (dCtx) {
           if (diagRadarInst) diagRadarInst.destroy();
+          const diagBase = diagnosticos.value.length ? (diagnosticos.value[0].dimensoes || []) : [];
+          const diagLabels = diagBase.length ? diagBase.map(function(d){ return d.nome; }) : ['D1', 'D2', 'D3', 'D4', 'D5'];
+          const diagData = diagBase.length ? diagBase.map(function(d){ return Number(d.valor || 0); }) : [0,0,0,0,0];
+
           diagRadarInst = new Chart(dCtx, {
             type: 'radar',
             data: {
-              labels: ['Seiri', 'Seiton', 'Seiso', 'Seiketsu', 'Shitsuke'],
+              labels: diagLabels,
               datasets: [{
                 label: 'Resultado',
-                data: [75, 80, 55, 62, 70],
+                data: diagData,
                 fill: true,
                 backgroundColor: 'rgba(20,184,166,0.15)',
                 borderColor: '#14b8a6',
@@ -1674,7 +1669,8 @@ createApp({
                   pointLabels: { color: '#94a3b8', font: { size: 11 } }
                 }
               },
-              plugins: { legend: { display: false } }
+              plugins: { legend: { display: false } },
+              animation: { duration: 0 }
             }
           });
         }
@@ -1697,14 +1693,10 @@ createApp({
     });
 
     function navigate(page) {
-      loading.value = true;
-      setTimeout(() => {
-        currentPage.value = page;
-        loading.value = false;
-        if (page === 'dashboard' || page === 'diagnostico') {
-          setTimeout(initCharts, 100);
-        }
-      }, 400);
+      currentPage.value = page;
+      if (page === 'dashboard' || page === 'diagnostico') {
+        setTimeout(initCharts, 100);
+      }
     }
 
     function selectCliente(c) { clienteSelecionado.value = c; }
@@ -1840,6 +1832,32 @@ createApp({
       return err;
     });
 
+    async function carregarDadosIniciais() {
+      if (!sessionToken.value) return;
+      const token = sessionToken.value;
+
+      const kpiRes = await gasClient.api({ modulo: 'dashboard', acao: 'kpis', token: token }, { retries: 0, silent: true });
+      if (kpiRes && kpiRes.sucesso && kpiRes.kpis) {
+        financeiro.value = {
+          receitaTotal: String(kpiRes.kpis.receitaMensal || '0'),
+          inadimplente: financeiro.value.inadimplente,
+          potencial: String(kpiRes.kpis.receitaMensal || '0')
+        };
+      }
+
+      const clientesRes = await gasClient.api({ modulo: 'clientes', acao: 'listar', token: token, dados: { page: 1, pageSize: 200 } }, { retries: 0, silent: true });
+      clientes.value = (clientesRes && clientesRes.clientes) ? clientesRes.clientes : [];
+
+      const tarefasRes = await gasClient.api({ modulo: 'tarefas', acao: 'listar', token: token, dados: { page: 1, pageSize: 400 } }, { retries: 0, silent: true });
+      tarefas.value = (tarefasRes && tarefasRes.tarefas) ? tarefasRes.tarefas : [];
+
+      const diagRes = await gasClient.api({ modulo: 'diagnosticos', acao: 'listar', token: token, dados: {} }, { retries: 0, silent: true });
+      diagnosticos.value = (diagRes && diagRes.diagnosticos) ? diagRes.diagnosticos : [];
+
+      const finRes = await gasClient.api({ modulo: 'financeiro', acao: 'listar', token: token, dados: {} }, { retries: 0, silent: true });
+      pagamentos.value = (finRes && finRes.registros) ? finRes.registros : [];
+    }
+
     /* AUTH */
     async function doLogin() {
       if (!loginEmail.value || !loginPass.value) {
@@ -1870,6 +1888,7 @@ createApp({
         }
 
         setAuthState('authenticated');
+        await carregarDadosIniciais();
         setTimeout(initCharts, 300);
       } catch (err) {
         const msg = (err && err.message) || String(err) || 'Erro ao conectar com backend GAS.';
@@ -1880,14 +1899,49 @@ createApp({
       }
     }
 
-    function demoLogin() {
-      loginEmail.value = 'apollo@demo.com';
-      loginPass.value = 'demo123';
-      doLogin();
+    async function doSignup() {
+      if (!signupNome.value || !signupEmail.value || !signupPass.value) {
+        loginError.value = 'Preencha nome, e-mail e senha para criar conta.';
+        return;
+      }
+      loading.value = true;
+      loginError.value = '';
+      try {
+        const res = await gasClient.call('cadastrarConsultor', {
+          nome: signupNome.value,
+          email: signupEmail.value,
+          senha: signupPass.value
+        }, { retries: 0, timeoutMs: 20000 });
+
+        if (!res || !res.sucesso) {
+          loginError.value = (res && res.erro) || 'Falha no cadastro.';
+          return;
+        }
+
+        sessionToken.value = res.token || '';
+        user.value = {
+          nome: (res.consultor && res.consultor.nome) || signupNome.value,
+          email: (res.consultor && res.consultor.email) || signupEmail.value,
+          plano: (res.consultor && res.consultor.plano) || 'Pro',
+          initials: ((res.consultor && res.consultor.nome) || signupNome.value).split(' ').map(function(n){ return n[0]; }).slice(0,2).join('').toUpperCase()
+        };
+
+        setAuthState('authenticated');
+        await carregarDadosIniciais();
+        setTimeout(initCharts, 300);
+      } catch (err) {
+        loginError.value = (err && err.message) || 'Erro ao cadastrar conta.';
+      } finally {
+        loading.value = false;
+      }
     }
 
     function doLogout() {
       sessionToken.value = '';
+      clientes.value = [];
+      tarefas.value = [];
+      diagnosticos.value = [];
+      pagamentos.value = [];
       setAuthState('unauthenticated');
       loginEmail.value = ''; loginPass.value = '';
     }
@@ -1906,51 +1960,60 @@ createApp({
     /* CRUD */
     function salvarCliente() {
       loading.value = true;
-      // Em produção: google.script.run.salvarCliente(form.value)
-      setTimeout(() => {
-        const novo = {
-          uuid: 'c-' + Date.now(),
-          ...form.value,
-          maturidade: 10,
-          tarefas_abertas: 0
-        };
-        clientes.value.push(novo);
-        form.value = { empresa_nome:'', segmento:'Tecnologia', status:'active', responsavel:'', mensalidade:'', obs:'' };
-        loading.value = false;
-        closeModal();
-      }, 600);
+      gasClient.api({ modulo: 'clientes', acao: 'salvar', token: sessionToken.value, dados: form.value }, { retries: 0 })
+        .then(function(res) {
+          if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao salvar cliente');
+          return carregarDadosIniciais();
+        })
+        .then(function() {
+          form.value = { empresa_nome:'', segmento:'Tecnologia', status:'active', responsavel:'', mensalidade:'', obs:'' };
+          closeModal();
+        })
+        .catch(function(err){ alert((err && err.message) || err); })
+        .finally(function(){ loading.value = false; });
     }
 
     function salvarTarefa() {
       loading.value = true;
-      setTimeout(() => {
-        const nova = { uuid: 't-' + Date.now(), ...formTarefa.value };
-        tarefas.value.push(nova);
-        formTarefa.value = { descricao:'', responsavel:'', prazo_iso:'', onde:'', porque:'', como:'', custo:'', indicador:'', cliente_id:'', status:'iniciar', tipo:'Processo' };
-        loading.value = false;
-        closeModal();
-      }, 500);
+      gasClient.api({ modulo: 'tarefas', acao: 'salvar', token: sessionToken.value, dados: formTarefa.value }, { retries: 0 })
+        .then(function(res){ if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao salvar tarefa'); return carregarDadosIniciais(); })
+        .then(function(){
+          formTarefa.value = { descricao:'', responsavel:'', prazo_iso:'', onde:'', porque:'', como:'', custo:'', indicador:'', cliente_id:'', status:'iniciar', tipo:'Processo' };
+          closeModal();
+        })
+        .catch(function(err){ alert((err && err.message) || err); })
+        .finally(function(){ loading.value = false; });
     }
 
     function atualizarTarefa() {
+      if (!tarefaSelecionada.value) return;
       loading.value = true;
-      setTimeout(() => { loading.value = false; closeModal(); }, 400);
+      gasClient.api({ modulo: 'tarefas', acao: 'salvar', token: sessionToken.value, dados: tarefaSelecionada.value }, { retries: 0 })
+        .then(function(){ return carregarDadosIniciais(); })
+        .then(function(){ closeModal(); })
+        .catch(function(err){ alert((err && err.message) || err); })
+        .finally(function(){ loading.value = false; });
     }
 
     function excluirTarefa(t) {
-      tarefas.value = tarefas.value.filter(x => x.uuid !== t.uuid);
-      closeModal();
+      if (!t || !t.uuid) return;
+      loading.value = true;
+      gasClient.api({ modulo: 'tarefas', acao: 'salvar', token: sessionToken.value, dados: { uuid: t.uuid, status: 'deleted' } }, { retries: 0 })
+        .then(function(){ return carregarDadosIniciais(); })
+        .then(function(){ closeModal(); })
+        .catch(function(err){ alert((err && err.message) || err); })
+        .finally(function(){ loading.value = false; });
     }
 
     function salvarDiagnostico() {
       loading.value = true;
-      setTimeout(() => {
-        const score = Math.round(questionario5S.value.reduce((a, q) => a + (q.resposta || 0), 0) / (questionario5S.value.length * 5) * 100);
-        alert('Score calculado: ' + score + '% · Diagnóstico salvo no Google Sheets');
-        loading.value = false;
-        diagTab.value = 'resultados';
-        setTimeout(initCharts, 200);
-      }, 800);
+      const respostas = {};
+      questionario5S.value.forEach(function(q, i){ respostas['q' + (i+1)] = Number(q.resposta || 0); });
+      gasClient.api({ modulo: 'diagnosticos', acao: 'salvar', token: sessionToken.value, dados: { cliente_id: formDiag.value.cliente_id, tipo_matriz: formDiag.value.tipo, respostas: respostas } }, { retries: 0 })
+        .then(function(res){ if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao salvar diagnóstico'); return carregarDadosIniciais(); })
+        .then(function(){ diagTab.value = 'resultados'; setTimeout(initCharts, 200); })
+        .catch(function(err){ alert((err && err.message) || err); })
+        .finally(function(){ loading.value = false; });
     }
 
     function criarDiagnostico() {
@@ -1959,7 +2022,12 @@ createApp({
     }
 
     function marcarPago(p) {
-      p.pago = true;
+      if (!p || !p.uuid) return;
+      loading.value = true;
+      gasClient.api({ modulo: 'financeiro', acao: 'registrar', token: sessionToken.value, dados: { uuid: p.uuid, metodo: 'manual' } }, { retries: 0 })
+        .then(function(){ return carregarDadosIniciais(); })
+        .catch(function(err){ alert((err && err.message) || err); })
+        .finally(function(){ loading.value = false; });
     }
 
     /* PORTAL */
@@ -2061,14 +2129,15 @@ createApp({
     });
 
     return {
-      loading, appState, authenticated, showSetupAction, sessionToken, loginEmail, loginPass, loginError,
+      loading, appState, authenticated, showSetupAction, authMode, sessionToken,
+      loginEmail, loginPass, signupNome, signupEmail, signupPass, loginError,
       currentPage, pageTitle, modal, busca, diagTab, filtroCliente,
       portalClienteId, linkPortal, showPortalPreview, tarefaSelecionada,
       user, clientes, tarefas, form, formTarefa, formDiag,
       clienteSelecionado, clientesFiltrados, kpis, diagnosticos,
       questionario5S, kanbanColunas, tarefasPorStatus, tarefasDoCliente,
       financeiro, pagamentos, metasCliente, tiposRelatorio, sheetsConfig,
-      navigate, selectCliente, doLogin, demoLogin, doLogout,
+      navigate, selectCliente, doLogin, doSignup, doLogout,
       openModal, closeModal,
       salvarCliente, salvarTarefa, atualizarTarefa, excluirTarefa,
       salvarDiagnostico, criarDiagnostico, marcarPago,

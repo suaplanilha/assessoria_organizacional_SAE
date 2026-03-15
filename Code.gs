@@ -37,7 +37,7 @@ const SCHEMA_VERSION = '1.0.0';
 
 const SHEET_SCHEMAS = {
   consultores: [
-    'uuid', 'nome', 'email', 'email_hash', 'plano_saas',
+    'uuid', 'nome', 'email', 'email_hash', 'senha_hash', 'plano_saas',
     'data_adesao', 'ativo', 'configuracoes_json'
   ],
   clientes: [
@@ -264,7 +264,7 @@ function setupSpreadsheet() {
     }
 
     // Verifica se headers já foram escritos
-    const firstRow = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+    const firstRow = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), headers.length)).getValues()[0];
     if (!firstRow[0]) {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       // Formata header
@@ -274,6 +274,15 @@ function setupSpreadsheet() {
         .setFontWeight('bold')
         .setFontSize(10);
       sheet.setFrozenRows(1);
+    } else {
+      // Migração de schema: adiciona colunas faltantes ao final
+      const existentesHeader = firstRow.filter(Boolean);
+      const faltantes = headers.filter(h => !existentesHeader.includes(h));
+      if (faltantes.length) {
+        const inicio = existentesHeader.length + 1;
+        sheet.getRange(1, inicio, 1, faltantes.length).setValues([faltantes]);
+        Logger.log('Aba "' + nome + '" recebeu colunas faltantes: ' + faltantes.join(', '));
+      }
     }
   }
 
@@ -342,11 +351,14 @@ function autenticarConsultor(dados) {
     const idxNome = headers.indexOf('nome');
     const idxPlano = headers.indexOf('plano_saas');
     const idxAtivo = headers.indexOf('ativo');
+    const idxSenha = headers.indexOf('senha_hash');
+
+    if (idxSenha < 0) return falha('Schema desatualizado em consultores. Execute setupSpreadsheet().');
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       // Compara email_hash
-      if (row[idxHash] === emailHash && toBooleanSafe(row[idxAtivo])) {
+      if (row[idxHash] === emailHash && row[idxSenha] === senhaHash && toBooleanSafe(row[idxAtivo])) {
         const consultor = {
           uuid: row[idxUUID],
           nome: row[idxNome],
@@ -359,8 +371,7 @@ function autenticarConsultor(dados) {
       }
     }
 
-    // Para MVP: auto-cadastro no primeiro login
-    return autoCadastrarConsultor(email, emailHash);
+    return falha('Conta não encontrada ou senha inválida. Crie sua conta no cadastro.');
 
   } catch (err) {
     logEstruturado('auth.login.exception', { mensagem: err.message, stack: String(err.stack || '') }, 'ERROR');
@@ -369,20 +380,34 @@ function autenticarConsultor(dados) {
 }
 
 /**
- * Auto-cadastra consultor no primeiro acesso (MVP)
+ * Cadastra consultor explicitamente
  */
-function autoCadastrarConsultor(email, emailHash) {
+function cadastrarConsultor(dados) {
+  const { nome, email, senha } = dados || {};
+  if (!nome || !email || !senha) return falha('Nome, e-mail e senha são obrigatórios');
+
+  const emailHash = hashEmail(email);
+  const senhaHash = hashEmail(senha);
   const sheetInfo = getSheetOrFail('consultores');
   if (sheetInfo.error) return sheetInfo.error;
   const sheet = sheetInfo.sheet;
+  const snapshot = getSheetSnapshot(sheet);
+  const headers = snapshot.headers;
+  const idxHash = headers.indexOf('email_hash');
+
+  if (idxHash < 0) return falha('Schema desatualizado em consultores. Execute setupSpreadsheet().');
+
+  const jaExiste = snapshot.rows.some(r => r[idxHash] === emailHash);
+  if (jaExiste) return falha('Já existe conta cadastrada para este e-mail');
+
   const uuid = gerarUUID();
-  const nome = email.split('@')[0].replace(/[^a-zA-Z]/g, ' ').trim();
 
   sheet.appendRow([
     uuid,
-    nome.charAt(0).toUpperCase() + nome.slice(1),
+    nome,
     email,
     emailHash,
+    senhaHash,
     'Pro',
     new Date().toISOString(),
     true,
@@ -392,9 +417,9 @@ function autoCadastrarConsultor(email, emailHash) {
   const token = criarSessao(uuid, emailHash);
   return {
     sucesso: true,
-    consultor: { uuid, nome, email, plano: 'Pro' },
+    consultor: { uuid, nome: nome, email: email, plano: 'Pro' },
     token,
-    mensagem: 'Conta criada automaticamente'
+    mensagem: 'Conta criada com sucesso'
   };
 }
 
@@ -1243,6 +1268,7 @@ function api(params) {
   const roteamento = {
     auth: {
       login: () => autenticarConsultor(dados),
+      cadastro: () => cadastrarConsultor(dados),
       verificar: () => { const consultorId = verificarSessao(token); return { sucesso: !!consultorId, consultor_id: consultorId }; },
     },
     clientes: {
