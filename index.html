@@ -512,6 +512,23 @@ tr:last-child td { border-bottom: none; }
 .toast.error { border-color: rgba(244,63,94,0.5); color: #fda4af; }
 .toast.info { border-color: rgba(6,182,212,0.5); color: #67e8f9; }
 
+/* ===== SYSTEM MODAL ===== */
+.system-modal-overlay {
+  position: fixed; inset: 0; z-index: 420;
+  background: rgba(2,6,23,0.65); backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+}
+.system-modal {
+  width: min(92vw, 420px);
+  background: rgba(15,23,42,0.95);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+.system-modal h4 { margin: 0 0 10px; font-size: 14px; }
+.system-modal p { margin: 0 0 14px; font-size: 12px; color: var(--text-secondary); }
+
 /* ===== TABS ===== */
 .tabs { display: flex; gap: 2px; background: rgba(15,23,42,0.6); border-radius: 10px; padding: 4px; margin-bottom: 18px; width: fit-content; }
 .tab {
@@ -579,6 +596,16 @@ tr:last-child td { border-bottom: none; }
 
   <div class="toast-stack" v-if="toasts.length">
     <div class="toast" :class="t.tipo" v-for="t in toasts" :key="t.id">{{ t.msg }}</div>
+  </div>
+
+  <div class="system-modal-overlay" v-if="systemModal.open" @click.self="closeSystemModal">
+    <div class="system-modal">
+      <h4>{{ systemModal.title }}</h4>
+      <p>{{ systemModal.message }}</p>
+      <div style="display:flex;justify-content:flex-end;">
+        <button class="btn btn-primary" @click="closeSystemModal">OK</button>
+      </div>
+    </div>
   </div>
 
   <!-- LOGIN -->
@@ -1488,6 +1515,7 @@ createApp({
     const showPortalPreview = ref(false);
     const tarefaSelecionada = ref(null);
     const toasts = ref([]);
+    const systemModal = ref({ open: false, title: '', message: '' });
 
     const user = ref({ nome: 'Apollo Consultor', email: 'apollo@sae.app', plano: 'Pro', initials: 'AC' });
 
@@ -1861,6 +1889,14 @@ createApp({
       }, 3200);
     }
 
+    function notifyModal(title, message) {
+      systemModal.value = { open: true, title: title || 'Aviso', message: message || '' };
+    }
+
+    function closeSystemModal() {
+      systemModal.value.open = false;
+    }
+
     async function carregarDadosIniciais() {
       if (!sessionToken.value) return;
       const token = sessionToken.value;
@@ -2104,7 +2140,7 @@ createApp({
               win.document.close();
               notify('Relatório HTML aberto em nova aba.', 'info');
             } else {
-              notify('Bloqueio de pop-up detectado. Permita pop-ups para baixar o relatório.', 'error');
+              notifyModal('Pop-up bloqueado', 'Permita pop-ups para este domínio para concluir o download do relatório.');
             }
           }
         })
@@ -2198,7 +2234,7 @@ createApp({
       loading, appState, authenticated, showSetupAction, authMode, sessionToken,
       loginEmail, loginPass, signupNome, signupEmail, signupPass, loginError,
       currentPage, pageTitle, modal, busca, diagTab, filtroCliente,
-      portalClienteId, linkPortal, showPortalPreview, tarefaSelecionada, toasts,
+      portalClienteId, linkPortal, showPortalPreview, tarefaSelecionada, toasts, systemModal,
       user, clientes, tarefas, form, formTarefa, formDiag,
       clienteSelecionado, clientesFiltrados, kpis, diagnosticos,
       questionario5S, kanbanColunas, tarefasPorStatus, tarefasDoCliente,
@@ -2208,7 +2244,7 @@ createApp({
       salvarCliente, salvarTarefa, atualizarTarefa, excluirTarefa,
       salvarDiagnostico, criarDiagnostico, marcarPago,
       gerarLinkPortal, verPreviewPortal, gerarRelatorio,
-      gerarRelatorioTipo, runSetup,
+      gerarRelatorioTipo, runSetup, notifyModal, closeSystemModal,
       formatDate, isOverdue, campos5W2H
     };
   }

@@ -1123,16 +1123,26 @@ function gerarRelatorio(token, clienteId, tipo) {
       htmlRelatorio = gerarHTMLPortalCliente(dados);
   }
 
-  // Cria arquivo no Google Drive como PDF
+  // Cria arquivo PDF real no Google Drive
   try {
-    const blob = Utilities.newBlob(htmlRelatorio, 'text/html', 'relatorio.html');
+    const htmlBlob = Utilities.newBlob(htmlRelatorio, 'text/html', 'relatorio.html');
+    const pdfBlob = htmlBlob.getAs('application/pdf');
+
+    const dataNome = new Date().toISOString().slice(0, 10);
+    const nomeBase = 'SAE_' + tipo + '_' + String(dados.cliente.empresa_nome || 'cliente').replace(/[\\/:*?"<>|]/g, '_') + '_' + dataNome;
+    pdfBlob.setName(nomeBase + '.pdf');
+
     const folder = getOrCreateFolder('SAE_Relatorios');
-    const arquivo = folder.createFile(blob);
-    arquivo.setName(`SAE_${tipo}_${dados.cliente.empresa_nome}_${new Date().toISOString().slice(0,10)}.html`);
+    const arquivo = folder.createFile(pdfBlob);
+
+    const downloadUrl = 'https://drive.google.com/uc?export=download&id=' + arquivo.getId();
+    const previewUrl = 'https://drive.google.com/file/d/' + arquivo.getId() + '/view';
 
     return {
       sucesso: true,
-      url: arquivo.getDownloadUrl(),
+      url: downloadUrl,
+      preview_url: previewUrl,
+      mime: 'application/pdf',
       nomeArquivo: arquivo.getName()
     };
   } catch (err) {
