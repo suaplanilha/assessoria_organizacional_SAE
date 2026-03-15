@@ -337,11 +337,13 @@ tr:last-child td { border-bottom: none; }
   display: flex; align-items: center; justify-content: center; padding: 20px;
 }
 .modal {
-  background: #1e293b; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-primary);
+  border: 1px solid var(--border);
   border-radius: var(--radius-xl); padding: 28px;
   width: 100%; max-width: 520px; max-height: 85vh;
   overflow-y: auto;
-  box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+  box-shadow: var(--shadow);
+  backdrop-filter: var(--blur);
   animation: modalIn 0.2s ease;
 }
 .modal-lg { max-width: 700px; }
@@ -350,6 +352,16 @@ tr:last-child td { border-bottom: none; }
   display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px;
 }
 .modal-title { font-family: var(--font-head); font-size: 18px; font-weight: 800; }
+.modal .modal-title { color: var(--text-primary); }
+.modal .form-label { color: var(--text-secondary); font-weight: 500; }
+.modal .form-input,
+.modal .form-select,
+.modal .form-textarea {
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: var(--radius);
+}
 .modal-close {
   width: 30px; height: 30px; border-radius: 8px; border: none;
   background: var(--bg-glass); color: var(--text-secondary); cursor: pointer;
