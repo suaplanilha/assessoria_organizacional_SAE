@@ -1493,6 +1493,7 @@ tr:last-child td { border-bottom: none; }
           <div class="form-group">
             <label class="form-label">Cliente</label>
             <select class="form-select" v-model="formTarefa.cliente_id">
+              <option value="">Selecione um cliente</option>
               <option v-for="c in clientes" :key="c.uuid" :value="c.uuid">{{ c.empresa_nome }}</option>
             </select>
           </div>
@@ -1677,11 +1678,38 @@ createApp({
       { id: 'concluido', label: 'Concluído' },
     ];
 
-    const tarefasPorStatus = (status) =>
-      tarefas.value.filter(t =>
-        t.status === status &&
-        (!filtroCliente.value || t.cliente_id === filtroCliente.value)
+    function normalizeIdSafe(value) {
+      return String(value || '').trim();
+    }
+
+    function normalizeTaskStatus(value) {
+      const raw = String(value || '').trim().toLowerCase();
+      const map = {
+        iniciar: 'iniciar',
+        inicio: 'iniciar',
+        'a iniciar': 'iniciar',
+        a_iniciar: 'iniciar',
+        execucao: 'execucao',
+        execução: 'execucao',
+        'em execução': 'execucao',
+        em_execucao: 'execucao',
+        validando: 'validando',
+        validacao: 'validando',
+        validação: 'validando',
+        concluido: 'concluido',
+        concluído: 'concluido'
+      };
+      return map[raw] || 'iniciar';
+    }
+
+    const tarefasPorStatus = (status) => {
+      const statusNormalized = normalizeTaskStatus(status);
+      const filtroClienteNormalizado = normalizeIdSafe(filtroCliente.value);
+      return tarefas.value.filter(t =>
+        normalizeTaskStatus(t.status) === statusNormalized &&
+        (!filtroClienteNormalizado || normalizeIdSafe(t.cliente_id) === filtroClienteNormalizado)
       );
+    };
 
     const tarefasDoCliente = computed(() =>
       clienteSelecionado.value
@@ -2050,8 +2078,15 @@ createApp({
     function refreshTarefas(token, silent) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
-      return gasClient.api({ modulo: 'tarefas', acao: 'listar', token: t, dados: { page: 1, pageSize: 400 } }, { retries: 0, silent: !!silent })
-        .then(function(res) { tarefas.value = (res && res.tarefas) ? res.tarefas : []; });
+      return gasClient.api({ modulo: 'tarefas', acao: 'listar', token: t, dados: { page: 1, pageSize: 200 } }, { retries: 0, silent: !!silent })
+        .then(function(res) {
+          const incoming = (res && res.tarefas) ? res.tarefas : [];
+          tarefas.value = incoming.map(function(task) {
+            task.status = normalizeTaskStatus(task.status);
+            task.cliente_id = normalizeIdSafe(task.cliente_id);
+            return task;
+          });
+        });
     }
 
     function refreshDiagnosticos(token, silent) {
@@ -2230,7 +2265,15 @@ createApp({
     function openModal(name, data = null) {
       modal.value = name;
       if (name === 'verTarefa' && data) tarefaSelecionada.value = data;
-      if (name === 'novaTarefa' && data && data.status) formTarefa.value.status = data.status;
+      if (name === 'novaTarefa') {
+        if (data && data.status) formTarefa.value.status = normalizeTaskStatus(data.status);
+        if (!normalizeIdSafe(formTarefa.value.cliente_id)) {
+          formTarefa.value.cliente_id =
+            normalizeIdSafe(filtroCliente.value) ||
+            normalizeIdSafe(clienteSelecionado.value && clienteSelecionado.value.uuid) ||
+            normalizeIdSafe(clientes.value[0] && clientes.value[0].uuid);
+        }
+      }
     }
     function closeModal() {
       modal.value = null;
@@ -2256,6 +2299,13 @@ createApp({
     }
 
     function salvarTarefa() {
+      if (!normalizeIdSafe(formTarefa.value.cliente_id)) {
+        notify('Selecione um cliente para salvar a tarefa.', 'error');
+        return;
+      }
+      formTarefa.value.status = normalizeTaskStatus(formTarefa.value.status);
+      formTarefa.value.cliente_id = normalizeIdSafe(formTarefa.value.cliente_id);
+
       loading.value = true;
       gasClient.api({ modulo: 'tarefas', acao: 'salvar', token: sessionToken.value, dados: formTarefa.value }, { retries: 0 })
         .then(function(res){

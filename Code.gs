@@ -194,6 +194,30 @@ function parsePaginacao(opts = {}) {
   return { page, pageSize, offset: (page - 1) * pageSize };
 }
 
+function normalizeIdSafe(v) {
+  return String(v || '').trim();
+}
+
+function normalizeStatusTarefa(v) {
+  const raw = String(v || '').trim().toLowerCase();
+  const mapa = {
+    iniciar: 'iniciar',
+    inicio: 'iniciar',
+    'a_iniciar': 'iniciar',
+    'a iniciar': 'iniciar',
+    execucao: 'execucao',
+    execução: 'execucao',
+    em_execucao: 'execucao',
+    'em execução': 'execucao',
+    validando: 'validando',
+    validacao: 'validando',
+    validação: 'validando',
+    concluido: 'concluido',
+    concluído: 'concluido',
+    done: 'concluido'
+  };
+  return mapa[raw] || 'iniciar';
+}
 
 /**
  * Retorna o Spreadsheet ativo (ou cria um novo se não configurado)
@@ -827,7 +851,7 @@ function salvarDiagnostico(token, dados) {
     const uuid = gerarUUID();
     sheet.appendRow([
       uuid,
-      dados.cliente_id,
+      clienteIdNormalizado,
       consultorId,
       dados.tipo_matriz,
       JSON.stringify(dados.respostas || {}),
@@ -895,6 +919,11 @@ function listarTarefas(token, clienteId = null, opts = {}) {
   if (clienteId) filtros.cliente_id = clienteId;
 
   const lista = sheetParaObjetos(sheet, filtros)
+    .map(t => {
+      t.cliente_id = normalizeIdSafe(t.cliente_id);
+      t.status = normalizeStatusTarefa(t.status);
+      return t;
+    })
     .filter(t => t.status !== 'deleted');
   const total = lista.length;
   const tarefas = lista.slice(pag.offset, pag.offset + pag.pageSize);
@@ -917,6 +946,17 @@ function salvarTarefa(token, dados) {
   const consultorId = verificarSessao(token);
   if (!consultorId) return falha('Sessão inválida');
 
+  dados = dados || {};
+  const clienteIdNormalizado = normalizeIdSafe(dados.cliente_id);
+  const statusNormalizado = normalizeStatusTarefa(dados.status);
+
+  if (!dados.uuid && !clienteIdNormalizado) {
+    return falha('Cliente é obrigatório para criar tarefa. Selecione um cliente no formulário.');
+  }
+  if (!dados.descricao && !dados.uuid) {
+    return falha('Descrição da tarefa é obrigatória.');
+  }
+
   const sheetInfo = getSheetOrFail('tarefas_5w2h');
   if (sheetInfo.error) return sheetInfo.error;
   const sheet = sheetInfo.sheet;
@@ -935,7 +975,7 @@ function salvarTarefa(token, dados) {
     const campos = ['descricao','responsavel','prazo_iso','onde','porque','como','custo','indicador','status','tipo','evidencia'];
     campos.forEach(c => {
       if (dados[c] !== undefined) {
-        sheet.getRange(linha.row, headers.indexOf(c) + 1).setValue(dados[c]);
+        sheet.getRange(linha.row, headers.indexOf(c) + 1).setValue(c === 'status' ? statusNormalizado : dados[c]);
       }
     });
     sheet.getRange(linha.row, headers.indexOf('updated_at') + 1).setValue(agora);
@@ -945,7 +985,7 @@ function salvarTarefa(token, dados) {
     const uuid = gerarUUID();
     sheet.appendRow([
       uuid,
-      dados.cliente_id,
+      clienteIdNormalizado,
       consultorId,
       dados.descricao || '',
       dados.responsavel || '',
@@ -955,7 +995,7 @@ function salvarTarefa(token, dados) {
       dados.como || '',
       dados.custo || '',
       dados.indicador || '',
-      dados.status || 'iniciar',
+      statusNormalizado,
       dados.tipo || 'Processo',
       dados.evidencia || '',
       agora,
@@ -964,6 +1004,73 @@ function salvarTarefa(token, dados) {
     invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid, acao: 'criado' };
   }
+}
+
+
+function sanearTarefas5w2h(opcoes = {}) {
+  const dryRun = toBooleanSafe(opcoes.dryRun);
+  const marcadorSemCliente = 'PENDENTE_VINCULO_CLIENTE';
+
+  const sheetInfo = getSheetOrFail('tarefas_5w2h');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
+  const snapshot = getSheetSnapshot(sheet);
+  if (snapshot.rows.length === 0) return sucesso({ total: 0, alteradas: 0, semCliente: 0, statusesNormalizados: 0 });
+
+  const headers = snapshot.headers;
+  const idxCliente = headers.indexOf('cliente_id');
+  const idxStatus = headers.indexOf('status');
+  const idxEvid = headers.indexOf('evidencia');
+  const idxUpdated = headers.indexOf('updated_at');
+  if ([idxCliente, idxStatus, idxEvid, idxUpdated].some(i => i < 0)) {
+    return falha('Schema desatualizado em tarefas_5w2h. Execute setupSpreadsheet().');
+  }
+
+  let alteradas = 0;
+  let semCliente = 0;
+  let statusesNormalizados = 0;
+  const agora = new Date().toISOString();
+
+  snapshot.rows.forEach((row, i) => {
+    const sheetRow = i + 2;
+    const clienteAtual = normalizeIdSafe(row[idxCliente]);
+    const statusAtual = String(row[idxStatus] || '');
+    const statusNovo = normalizeStatusTarefa(statusAtual);
+    let changed = false;
+
+    if (statusNovo !== statusAtual) {
+      statusesNormalizados += 1;
+      changed = true;
+      if (!dryRun) sheet.getRange(sheetRow, idxStatus + 1).setValue(statusNovo);
+    }
+
+    if (!clienteAtual) {
+      semCliente += 1;
+      changed = true;
+      if (!dryRun) {
+        sheet.getRange(sheetRow, idxCliente + 1).setValue(marcadorSemCliente);
+        const evid = String(row[idxEvid] || '').trim();
+        const tag = '[PENDENTE_VINCULO_CLIENTE]';
+        if (!evid.includes(tag)) {
+          sheet.getRange(sheetRow, idxEvid + 1).setValue((evid ? evid + ' ' : '') + tag);
+        }
+      }
+    }
+
+    if (changed) {
+      alteradas += 1;
+      if (!dryRun) sheet.getRange(sheetRow, idxUpdated + 1).setValue(agora);
+    }
+  });
+
+  return sucesso({
+    total: snapshot.rows.length,
+    alteradas,
+    semCliente,
+    statusesNormalizados,
+    marcadorSemCliente,
+    dryRun
+  });
 }
 
 /**
@@ -1052,7 +1159,7 @@ function registrarMensalidade(token, dados) {
     const uuid = gerarUUID();
     sheet.appendRow([
       uuid,
-      dados.cliente_id,
+      clienteIdNormalizado,
       consultorId,
       dados.valor_mensalidade || 0,
       dados.data_vencimento || agora,
@@ -1474,6 +1581,7 @@ function api(params) {
     setup: {
       executar: () => setupSpreadsheet(),
       validarSchema: () => sucesso(validarSchemaAbas()),
+      sanearTarefas: () => sanearTarefas5w2h(dados || {}),
     }
   };
 
