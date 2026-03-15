@@ -966,6 +966,32 @@ function servirPortalCliente(tokenCliente, consultorEmail) {
 }
 
 /**
+ * Gera link válido do portal do cliente usando URL real do Web App
+ */
+function gerarLinkPortalCliente(token, clienteId) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return falha('Sessão inválida');
+  if (!clienteId) return falha('Cliente obrigatório');
+
+  const sheetInfo = getSheetOrFail('clientes');
+  if (sheetInfo.error) return sheetInfo.error;
+  const linha = encontrarLinha(sheetInfo.sheet, clienteId);
+  if (!linha) return falha('Cliente não encontrado');
+
+  const idxConsultor = linha.headers.indexOf('consultor_id');
+  if (idxConsultor < 0 || linha.data[idxConsultor] !== consultorId) return falha('Acesso negado');
+
+  const idxEmail = linha.headers.indexOf('email_contato');
+  const consultorEmail = idxEmail >= 0 ? String(linha.data[idxEmail] || '') : '';
+  const tokenCliente = Utilities.base64Encode(clienteId);
+  const baseUrl = ScriptApp.getService().getUrl();
+  if (!baseUrl) return falha('URL do Web App indisponível. Publique uma versão do aplicativo.');
+
+  const url = baseUrl + '?page=portal&token=' + encodeURIComponent(tokenCliente) + '&consultor=' + encodeURIComponent(consultorEmail);
+  return { sucesso: true, url, token_cliente: tokenCliente };
+}
+
+/**
  * Busca dados completos de um cliente para o portal
  */
 function getDadosPortalCliente(clienteId) {
@@ -1295,6 +1321,9 @@ function api(params) {
     },
     relatorios: {
       gerar: () => gerarRelatorio(token, dados.cliente_id, dados.tipo),
+    },
+    portal: {
+      link: () => gerarLinkPortalCliente(token, dados && dados.cliente_id),
     },
     setup: {
       executar: () => setupSpreadsheet(),

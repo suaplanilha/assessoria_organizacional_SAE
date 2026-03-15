@@ -496,6 +496,22 @@ tr:last-child td { border-bottom: none; }
 .loading-dot:nth-child(3) { animation-delay: 0.3s; background: var(--teal); }
 @keyframes pulse { 0%,100%{ opacity:0.3; transform:scale(0.8); } 50%{ opacity:1; transform:scale(1.2); } }
 
+/* ===== TOAST ===== */
+.toast-stack {
+  position: fixed; right: 16px; top: 16px; z-index: 400;
+  display: flex; flex-direction: column; gap: 8px; max-width: 360px;
+}
+.toast {
+  border-radius: 10px; padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: rgba(15,23,42,0.9);
+  color: var(--text-primary); font-size: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.toast.success { border-color: rgba(16,185,129,0.5); color: #6ee7b7; }
+.toast.error { border-color: rgba(244,63,94,0.5); color: #fda4af; }
+.toast.info { border-color: rgba(6,182,212,0.5); color: #67e8f9; }
+
 /* ===== TABS ===== */
 .tabs { display: flex; gap: 2px; background: rgba(15,23,42,0.6); border-radius: 10px; padding: 4px; margin-bottom: 18px; width: fit-content; }
 .tab {
@@ -560,6 +576,10 @@ tr:last-child td { border-bottom: none; }
       </div>
     </div>
   </transition>
+
+  <div class="toast-stack" v-if="toasts.length">
+    <div class="toast" :class="t.tipo" v-for="t in toasts" :key="t.id">{{ t.msg }}</div>
+  </div>
 
   <!-- LOGIN -->
   <div class="login-wrap" v-if="appState!=='authenticated'">
@@ -1467,6 +1487,7 @@ createApp({
     const linkPortal = ref('');
     const showPortalPreview = ref(false);
     const tarefaSelecionada = ref(null);
+    const toasts = ref([]);
 
     const user = ref({ nome: 'Apollo Consultor', email: 'apollo@sae.app', plano: 'Pro', initials: 'AC' });
 
@@ -1832,6 +1853,14 @@ createApp({
       return err;
     });
 
+    function notify(msg, tipo) {
+      const id = String(Date.now()) + '_' + String(Math.random()).slice(2, 8);
+      toasts.value.push({ id: id, msg: msg, tipo: tipo || 'info' });
+      setTimeout(function() {
+        toasts.value = toasts.value.filter(function(t) { return t.id !== id; });
+      }, 3200);
+    }
+
     async function carregarDadosIniciais() {
       if (!sessionToken.value) return;
       const token = sessionToken.value;
@@ -1969,7 +1998,7 @@ createApp({
           form.value = { empresa_nome:'', segmento:'Tecnologia', status:'active', responsavel:'', mensalidade:'', obs:'' };
           closeModal();
         })
-        .catch(function(err){ alert((err && err.message) || err); })
+        .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -1981,7 +2010,7 @@ createApp({
           formTarefa.value = { descricao:'', responsavel:'', prazo_iso:'', onde:'', porque:'', como:'', custo:'', indicador:'', cliente_id:'', status:'iniciar', tipo:'Processo' };
           closeModal();
         })
-        .catch(function(err){ alert((err && err.message) || err); })
+        .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -1991,7 +2020,7 @@ createApp({
       gasClient.api({ modulo: 'tarefas', acao: 'salvar', token: sessionToken.value, dados: tarefaSelecionada.value }, { retries: 0 })
         .then(function(){ return carregarDadosIniciais(); })
         .then(function(){ closeModal(); })
-        .catch(function(err){ alert((err && err.message) || err); })
+        .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -2001,7 +2030,7 @@ createApp({
       gasClient.api({ modulo: 'tarefas', acao: 'salvar', token: sessionToken.value, dados: { uuid: t.uuid, status: 'deleted' } }, { retries: 0 })
         .then(function(){ return carregarDadosIniciais(); })
         .then(function(){ closeModal(); })
-        .catch(function(err){ alert((err && err.message) || err); })
+        .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -2012,7 +2041,7 @@ createApp({
       gasClient.api({ modulo: 'diagnosticos', acao: 'salvar', token: sessionToken.value, dados: { cliente_id: formDiag.value.cliente_id, tipo_matriz: formDiag.value.tipo, respostas: respostas } }, { retries: 0 })
         .then(function(res){ if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao salvar diagnóstico'); return carregarDadosIniciais(); })
         .then(function(){ diagTab.value = 'resultados'; setTimeout(initCharts, 200); })
-        .catch(function(err){ alert((err && err.message) || err); })
+        .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -2026,16 +2055,27 @@ createApp({
       loading.value = true;
       gasClient.api({ modulo: 'financeiro', acao: 'registrar', token: sessionToken.value, dados: { uuid: p.uuid, metodo: 'manual' } }, { retries: 0 })
         .then(function(){ return carregarDadosIniciais(); })
-        .catch(function(err){ alert((err && err.message) || err); })
+        .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
         .finally(function(){ loading.value = false; });
     }
 
     /* PORTAL */
     function gerarLinkPortal() {
-      if (!portalClienteId.value) return;
-      const c = clientes.value.find(x => x.uuid === portalClienteId.value);
-      clienteSelecionado.value = c;
-      linkPortal.value = 'https://script.google.com/macros/s/AKfycb.../exec?token=' + btoa(portalClienteId.value) + '&consultor=' + user.value.email;
+      if (!portalClienteId.value) {
+        notify('Selecione um cliente para gerar o link do portal.', 'info');
+        return;
+      }
+      const c = clientes.value.find(function(x){ return x.uuid === portalClienteId.value; });
+      clienteSelecionado.value = c || null;
+      loading.value = true;
+      gasClient.api({ modulo: 'portal', acao: 'link', token: sessionToken.value, dados: { cliente_id: portalClienteId.value } }, { retries: 0 })
+        .then(function(res) {
+          if (!res || !res.sucesso || !res.url) throw new Error((res && res.erro) || 'Falha ao gerar link do portal');
+          linkPortal.value = res.url;
+          notify('Link do portal gerado com sucesso.', 'success');
+        })
+        .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
+        .finally(function(){ loading.value = false; });
     }
 
     function verPreviewPortal() {
@@ -2046,20 +2086,46 @@ createApp({
     }
 
     function gerarRelatorio() {
+      if (!clienteSelecionado.value || !clienteSelecionado.value.uuid) {
+        notify('Selecione um cliente para gerar o relatório.', 'info');
+        return;
+      }
       loading.value = true;
-      // Em produção: google.script.run.gerarRelatorioPDF(clienteSelecionado.value.uuid)
-      setTimeout(() => {
-        loading.value = false;
-        alert('Relatório PDF gerado via Google Apps Script HtmlService!\n\nEm produção, o arquivo seria disponibilizado para download automático.');
-      }, 1500);
+      gasClient.api({ modulo: 'relatorios', acao: 'gerar', token: sessionToken.value, dados: { cliente_id: clienteSelecionado.value.uuid, tipo: 'executivo' } }, { retries: 0 })
+        .then(function(res){
+          if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao gerar relatório');
+          if (res.url) {
+            window.open(res.url, '_blank');
+            notify('Relatório gerado e enviado para download.', 'success');
+          } else if (res.html) {
+            var win = window.open('', '_blank');
+            if (win) {
+              win.document.write(res.html);
+              win.document.close();
+              notify('Relatório HTML aberto em nova aba.', 'info');
+            } else {
+              notify('Bloqueio de pop-up detectado. Permita pop-ups para baixar o relatório.', 'error');
+            }
+          }
+        })
+        .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
+        .finally(function(){ loading.value = false; });
     }
 
     function gerarRelatorioTipo(r) {
+      if (!clienteSelecionado.value || !clienteSelecionado.value.uuid) {
+        notify('Selecione um cliente para gerar relatório.', 'info');
+        return;
+      }
       loading.value = true;
-      setTimeout(() => {
-        loading.value = false;
-        alert('Relatório "' + r.nome + '" gerado!\n\nEm produção: google.script.run.gerarPDF("' + r.id + '", consultor_id)');
-      }, 1200);
+      gasClient.api({ modulo: 'relatorios', acao: 'gerar', token: sessionToken.value, dados: { cliente_id: clienteSelecionado.value.uuid, tipo: r.id } }, { retries: 0 })
+        .then(function(res){
+          if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao gerar relatório ' + r.nome);
+          if (res.url) window.open(res.url, '_blank');
+          notify('Relatório "' + r.nome + '" gerado com sucesso.', 'success');
+        })
+        .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
+        .finally(function(){ loading.value = false; });
     }
 
     async function runSetup() {
@@ -2067,13 +2133,13 @@ createApp({
       try {
         const res = await gasClient.call('setupSpreadsheet', undefined, { retries: 0, timeoutMs: 30000 });
         if (!res || !res.sucesso) {
-          alert((res && res.erro) || 'Falha ao executar setup.');
+          notify((res && res.erro) || 'Falha ao executar setup.', 'error');
           return;
         }
         showSetupAction.value = false;
         setAuthState('unauthenticated', 'Setup concluído. Faça login para continuar.');
       } catch (err) {
-        alert('Erro ao executar setup: ' + ((err && err.message) || err));
+        notify('Erro ao executar setup: ' + ((err && err.message) || err), 'error');
       } finally {
         loading.value = false;
       }
@@ -2132,7 +2198,7 @@ createApp({
       loading, appState, authenticated, showSetupAction, authMode, sessionToken,
       loginEmail, loginPass, signupNome, signupEmail, signupPass, loginError,
       currentPage, pageTitle, modal, busca, diagTab, filtroCliente,
-      portalClienteId, linkPortal, showPortalPreview, tarefaSelecionada,
+      portalClienteId, linkPortal, showPortalPreview, tarefaSelecionada, toasts,
       user, clientes, tarefas, form, formTarefa, formDiag,
       clienteSelecionado, clientesFiltrados, kpis, diagnosticos,
       questionario5S, kanbanColunas, tarefasPorStatus, tarefasDoCliente,
