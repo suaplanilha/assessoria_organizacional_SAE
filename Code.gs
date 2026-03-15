@@ -1275,7 +1275,9 @@ function gerarRelatorio(token, clienteId, tipo) {
       url: downloadUrl,
       preview_url: previewUrl,
       mime: 'application/pdf',
-      nomeArquivo: arquivo.getName()
+      nomeArquivo: arquivo.getName(),
+      file_name: arquivo.getName(),
+      base64_pdf: Utilities.base64Encode(pdfBlob.getBytes())
     };
   } catch (err) {
     // Fallback: retorna HTML direto para impressão no browser

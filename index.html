@@ -386,8 +386,8 @@ tr:last-child td { border-bottom: none; }
   min-height: 400px;
 }
 .kanban-col {
-  background: rgba(15,23,42,0.6);
-  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-surface);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
   display: flex; flex-direction: column;
 }
 .kanban-header {
@@ -552,7 +552,7 @@ tr:last-child td { border-bottom: none; }
 .toast {
   border-radius: 10px; padding: 10px 12px;
   border: 1px solid var(--border);
-  background: rgba(15,23,42,0.9);
+  background: var(--bg-surface);
   color: var(--text-primary); font-size: 12px;
   box-shadow: var(--shadow-sm);
 }
@@ -578,7 +578,7 @@ tr:last-child td { border-bottom: none; }
 .system-modal p { margin: 0 0 14px; font-size: 12px; color: var(--text-secondary); }
 
 /* ===== TABS ===== */
-.tabs { display: flex; gap: 2px; background: rgba(15,23,42,0.6); border-radius: 10px; padding: 4px; margin-bottom: 18px; width: fit-content; }
+.tabs { display: flex; gap: 2px; background: var(--bg-glass); border: 1px solid var(--border); border-radius: 10px; padding: 4px; margin-bottom: 18px; width: fit-content; }
 .tab {
   padding: 7px 16px; border-radius: 7px; border: none; cursor: pointer;
   font-family: var(--font-body); font-size: 12px; font-weight: 500;
@@ -2360,6 +2360,27 @@ createApp({
       showPortalPreview.value = !showPortalPreview.value;
     }
 
+    function triggerPdfDownload(base64, fileName) {
+      try {
+        const bytes = atob(base64 || '');
+        const len = bytes.length;
+        const arr = new Uint8Array(len);
+        for (let i = 0; i < len; i++) arr[i] = bytes.charCodeAt(i);
+        const blob = new Blob([arr], { type: 'application/pdf' });
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = fileName || ('relatorio_' + new Date().getTime() + '.pdf');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(function(){ URL.revokeObjectURL(objectUrl); }, 1500);
+        return true;
+      } catch (err) {
+        return false;
+      }
+    }
+
     function gerarRelatorio() {
       if (!clienteSelecionado.value || !clienteSelecionado.value.uuid) {
         notify('Selecione um cliente para gerar o relatório.', 'info');
@@ -2369,7 +2390,15 @@ createApp({
       gasClient.api({ modulo: 'relatorios', acao: 'gerar', token: sessionToken.value, dados: { cliente_id: clienteSelecionado.value.uuid, tipo: 'executivo' } }, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao gerar relatório');
-          if (res.url) {
+          if (res.base64_pdf) {
+            const ok = triggerPdfDownload(res.base64_pdf, res.file_name || 'relatorio_sae.pdf');
+            if (ok) {
+              notify('Relatório PDF baixado com sucesso.', 'success');
+            } else if (res.url) {
+              window.open(res.url, '_blank');
+              notify('Relatório gerado. Fallback por link de download.', 'info');
+            }
+          } else if (res.url) {
             window.open(res.url, '_blank');
             notify('Relatório gerado e enviado para download.', 'success');
           } else if (res.html) {
@@ -2396,7 +2425,11 @@ createApp({
       gasClient.api({ modulo: 'relatorios', acao: 'gerar', token: sessionToken.value, dados: { cliente_id: clienteSelecionado.value.uuid, tipo: r.id } }, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao gerar relatório ' + r.nome);
-          if (res.url) window.open(res.url, '_blank');
+          if (res.base64_pdf) {
+            triggerPdfDownload(res.base64_pdf, res.file_name || ('relatorio_' + r.id + '.pdf'));
+          } else if (res.url) {
+            window.open(res.url, '_blank');
+          }
           notify('Relatório "' + r.nome + '" gerado com sucesso.', 'success');
         })
         .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
