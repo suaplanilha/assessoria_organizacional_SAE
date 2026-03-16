@@ -1890,6 +1890,24 @@ createApp({
       if (page === 'dashboard' || page === 'diagnostico') {
         setTimeout(initCharts, 100);
       }
+      if (page === 'projetos' && sessionToken.value) {
+        refreshTarefas(sessionToken.value, false)
+          .catch(function(err) {
+            notify((err && err.message) || 'Falha ao atualizar tarefas.', 'error');
+          });
+      }
+      if (page === 'clientes' && sessionToken.value) {
+        refreshClientes(sessionToken.value, true)
+          .catch(function(err) {
+            console.error('[navigate/clientes]', err);
+          });
+      }
+      if (page === 'financeiro' && sessionToken.value) {
+        refreshFinanceiro(sessionToken.value, true)
+          .catch(function(err) {
+            console.error('[navigate/financeiro]', err);
+          });
+      }
     }
 
     function selectCliente(c) { clienteSelecionado.value = c; }
@@ -2069,24 +2087,59 @@ createApp({
         });
     }
 
+    function unwrapApiList(res, key) {
+      if (!res) {
+        throw new Error('Resposta vazia da API.');
+      }
+      if (res.sucesso === false) {
+        throw new Error(res.erro || ('Falha ao carregar ' + key));
+      }
+      if (Array.isArray(res[key])) {
+        return res[key];
+      }
+      if (res.dados && Array.isArray(res.dados[key])) {
+        return res.dados[key];
+      }
+      return [];
+    }
+
     function refreshClientes(token, silent) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
       return gasClient.api({ modulo: 'clientes', acao: 'listar', token: t, dados: { page: 1, pageSize: LIST_PAGE_SIZE } }, { retries: 0, silent: !!silent })
-        .then(function(res) { clientes.value = (res && res.clientes) ? res.clientes : []; });
+        .then(function(res) {
+          if (!res) throw new Error('Resposta vazia ao listar clientes.');
+          if (res.sucesso === false) throw new Error(res.erro || 'Falha ao listar clientes.');
+
+          clientes.value =
+            (Array.isArray(res.clientes) && res.clientes) ||
+            (res.dados && Array.isArray(res.dados.clientes) && res.dados.clientes) ||
+            [];
+
+          console.log('[refreshClientes] clientes carregados:', clientes.value.length);
+        });
     }
 
     function refreshTarefas(token, silent) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
+      console.log('[refreshTarefas] token?', !!t, 'clienteFiltro=', filtroCliente.value);
       return gasClient.api({ modulo: 'tarefas', acao: 'listar', token: t, dados: { page: 1, pageSize: LIST_PAGE_SIZE } }, { retries: 0, silent: !!silent })
         .then(function(res) {
-          const incoming = (res && res.tarefas) ? res.tarefas : [];
+          console.log('[refreshTarefas] resposta bruta:', res);
+          const incoming = unwrapApiList(res, 'tarefas');
           tarefas.value = incoming.map(function(task) {
-            task.status = normalizeTaskStatus(task.status);
-            task.cliente_id = normalizeIdSafe(task.cliente_id);
-            return task;
+            return {
+              ...task,
+              status: normalizeTaskStatus(task.status),
+              cliente_id: normalizeIdSafe(task.cliente_id)
+            };
           });
+          console.log('[refreshTarefas] tarefas carregadas:', tarefas.value.length);
+        })
+        .catch(function(err) {
+          console.error('[refreshTarefas] erro:', err);
+          throw err;
         });
     }
 
@@ -2094,14 +2147,30 @@ createApp({
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
       return gasClient.api({ modulo: 'diagnosticos', acao: 'listar', token: t, dados: {} }, { retries: 0, silent: !!silent })
-        .then(function(res) { diagnosticos.value = (res && res.diagnosticos) ? res.diagnosticos : []; });
+        .then(function(res) {
+          if (!res) throw new Error('Resposta vazia ao listar diagnósticos.');
+          if (res.sucesso === false) throw new Error(res.erro || 'Falha ao listar diagnósticos.');
+
+          diagnosticos.value =
+            (Array.isArray(res.diagnosticos) && res.diagnosticos) ||
+            (res.dados && Array.isArray(res.dados.diagnosticos) && res.dados.diagnosticos) ||
+            [];
+        });
     }
 
     function refreshFinanceiro(token, silent) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
       return gasClient.api({ modulo: 'financeiro', acao: 'listar', token: t, dados: {} }, { retries: 0, silent: !!silent })
-        .then(function(res) { pagamentos.value = (res && res.registros) ? res.registros : []; });
+        .then(function(res) {
+          if (!res) throw new Error('Resposta vazia ao listar financeiro.');
+          if (res.sucesso === false) throw new Error(res.erro || 'Falha ao listar financeiro.');
+
+          pagamentos.value =
+            (Array.isArray(res.registros) && res.registros) ||
+            (res.dados && Array.isArray(res.dados.registros) && res.dados.registros) ||
+            [];
+        });
     }
 
     function applyTheme(theme) {
@@ -2194,6 +2263,7 @@ createApp({
         }
 
         sessionToken.value = res.token || '';
+        try { sessionStorage.setItem('sae_token', sessionToken.value); } catch (err) {}
         if (res.consultor) {
           user.value = {
             nome: res.consultor.nome || user.value.nome,
@@ -2205,6 +2275,11 @@ createApp({
 
         setAuthState('authenticated');
         await carregarDadosIniciais();
+        console.log('[doLogin] token recebido:', !!sessionToken.value);
+        console.log('[doLogin] clientes carregados:', clientes.value.length);
+        console.log('[doLogin] tarefas carregadas:', tarefas.value.length);
+        console.log('[doLogin] diagnosticos carregados:', diagnosticos.value.length);
+        console.log('[doLogin] pagamentos carregados:', pagamentos.value.length);
         setTimeout(initCharts, 300);
       } catch (err) {
         const msg = (err && err.message) || String(err) || 'Erro ao conectar com backend GAS.';
@@ -2235,6 +2310,7 @@ createApp({
         }
 
         sessionToken.value = res.token || '';
+        try { sessionStorage.setItem('sae_token', sessionToken.value); } catch (err) {}
         user.value = {
           nome: (res.consultor && res.consultor.nome) || signupNome.value,
           email: (res.consultor && res.consultor.email) || signupEmail.value,
@@ -2253,6 +2329,7 @@ createApp({
     }
 
     function doLogout() {
+      try { sessionStorage.removeItem('sae_token'); } catch (err) {}
       sessionToken.value = '';
       clientes.value = [];
       tarefas.value = [];
@@ -2267,13 +2344,22 @@ createApp({
       modal.value = name;
       if (name === 'verTarefa' && data) tarefaSelecionada.value = data;
       if (name === 'novaTarefa') {
-        if (data && data.status) formTarefa.value.status = normalizeTaskStatus(data.status);
-        if (!normalizeIdSafe(formTarefa.value.cliente_id)) {
-          formTarefa.value.cliente_id =
+        formTarefa.value = {
+          descricao: '',
+          responsavel: '',
+          prazo_iso: '',
+          onde: '',
+          porque: '',
+          como: '',
+          custo: '',
+          indicador: '',
+          cliente_id:
             normalizeIdSafe(filtroCliente.value) ||
             normalizeIdSafe(clienteSelecionado.value && clienteSelecionado.value.uuid) ||
-            normalizeIdSafe(clientes.value[0] && clientes.value[0].uuid);
-        }
+            '',
+          status: (data && data.status) ? normalizeTaskStatus(data.status) : 'iniciar',
+          tipo: 'Processo'
+        };
       }
     }
     function closeModal() {
@@ -2577,6 +2663,23 @@ createApp({
       } catch (err) {
         setAuthState('error', 'Não foi possível validar schema: ' + ((err && err.message) || err));
         return;
+      }
+
+      try {
+        const savedToken = sessionStorage.getItem('sae_token');
+        if (savedToken) {
+          sessionToken.value = savedToken;
+          const authRes = await gasClient.api({ modulo: 'auth', acao: 'verificar', token: savedToken }, { retries: 0, timeoutMs: 15000 });
+          if (authRes && authRes.sucesso && authRes.consultor_id) {
+            setAuthState('authenticated');
+            await carregarDadosIniciais();
+            setTimeout(initCharts, 300);
+            return;
+          }
+          sessionStorage.removeItem('sae_token');
+        }
+      } catch (err) {
+        console.error('[boot auth restore]', err);
       }
 
       setAuthState('unauthenticated');
