@@ -201,6 +201,86 @@ function validarSchemaAbas() {
   return resultado;
 }
 
+function montarLinhaPorHeaders(headers, payload = {}) {
+  return headers.map(function(h) {
+    return payload[h] !== undefined ? payload[h] : '';
+  });
+}
+
+function normalizarAbaSessoes(opts = {}) {
+  const sheetInfo = getSheetOrFail('sessoes');
+  if (sheetInfo.error) return sheetInfo.error;
+
+  const sheet = sheetInfo.sheet;
+  const snapshot = getSheetSnapshot(sheet);
+  const headersEsperados = SHEET_SCHEMAS.sessoes.slice();
+
+  const headersAtuais = snapshot.headers.length ? snapshot.headers : headersEsperados;
+  const idx = function(nome) { return headersAtuais.indexOf(nome); };
+
+  const idxToken = idx('token');
+  const idxTenant = idx('tenant_id');
+  const idxConsultor = idx('consultor_id');
+  const idxPerfil = idx('perfil');
+  const idxEmailHash = idx('email_hash');
+  const idxCreated = idx('created_at');
+  const idxExpires = idx('expires_at');
+  const idxAtivo = idx('ativo');
+
+  const linhasNormalizadas = [];
+
+  snapshot.rows.forEach(function(row) {
+    let consultorId = idxConsultor >= 0 ? normalizeIdSafe(row[idxConsultor]) : '';
+    if (!consultorId && idxToken < 0 && row[0]) consultorId = normalizeIdSafe(row[0]);
+    if (!consultorId) return;
+
+    const consultor = getConsultorById(consultorId) || {};
+    let token = idxToken >= 0 ? String(row[idxToken] || '').trim() : '';
+    if (!token) {
+      token = Utilities.base64Encode(gerarUUID() + ':' + consultorId + ':' + Date.now());
+    }
+
+    const criadoRaw = idxCreated >= 0 ? row[idxCreated] : '';
+    const criadoDate = new Date(criadoRaw || Date.now());
+    const createdAt = Number.isNaN(criadoDate.getTime()) ? new Date().toISOString() : criadoDate.toISOString();
+
+    const expiraRaw = idxExpires >= 0 ? row[idxExpires] : '';
+    let expiraDate = new Date(expiraRaw || '');
+    if (Number.isNaN(expiraDate.getTime())) {
+      expiraDate = new Date(createdAt);
+      expiraDate.setDate(expiraDate.getDate() + 7);
+    }
+
+    const emailHash = idxEmailHash >= 0 ? String(row[idxEmailHash] || '') : String(consultor.email_hash || '');
+    const tenantId = normalizeIdSafe((idxTenant >= 0 ? row[idxTenant] : '') || consultor.tenant_id || garantirTenantParaConsultor(consultorId, consultor.nome, consultor.plano_saas));
+    const perfil = String((idxPerfil >= 0 ? row[idxPerfil] : '') || consultor.perfil || 'owner').toLowerCase();
+    const ativo = idxAtivo >= 0 ? toBooleanSafe(row[idxAtivo]) : true;
+
+    linhasNormalizadas.push(montarLinhaPorHeaders(headersEsperados, {
+      token: token,
+      tenant_id: tenantId,
+      consultor_id: consultorId,
+      perfil: perfil,
+      email_hash: emailHash,
+      created_at: createdAt,
+      expires_at: expiraDate.toISOString(),
+      ativo: ativo
+    }));
+  });
+
+  sheet.clearContents();
+  sheet.getRange(1, 1, 1, headersEsperados.length).setValues([headersEsperados]);
+  if (linhasNormalizadas.length) {
+    sheet.getRange(2, 1, linhasNormalizadas.length, headersEsperados.length).setValues(linhasNormalizadas);
+  }
+
+  if (!opts.silent) {
+    logEstruturado('setup.sessoes.normalizada', { linhas: linhasNormalizadas.length });
+  }
+
+  return sucesso({ normalizadas: linhasNormalizadas.length });
+}
+
 const CACHE_TTL_KPIS = 60; // segundos
 const CACHE_TTL_LISTA = 45; // segundos
 
@@ -416,6 +496,8 @@ function setupSpreadsheet() {
     .setProperty('SPREADSHEET_ID', ss.getId());
   PropertiesService.getScriptProperties().setProperty('DB_SCHEMA_VERSION', SCHEMA_VERSION);
 
+  normalizarAbaSessoes({ silent: true });
+
   Logger.log('Setup concluído! Spreadsheet ID: ' + ss.getId());
   return sucesso({ status: 'ok', message: 'Setup completo', spreadsheetId: ss.getId(), schemaVersion: SCHEMA_VERSION });
 }
@@ -577,10 +659,20 @@ function garantirTenantParaConsultor(consultorId, nomeTenant, plano) {
 
 function obterContextoSessao(token) {
   if (!token) return null;
-  const sheetInfo = getSheetOrFail('sessoes');
+
+  let sheetInfo = getSheetOrFail('sessoes');
   if (sheetInfo.error) return null;
-  const snapshot = getSheetSnapshot(sheetInfo.sheet);
+  let snapshot = getSheetSnapshot(sheetInfo.sheet);
   if (snapshot.rows.length === 0) return null;
+
+  const headersEsperados = SHEET_SCHEMAS.sessoes;
+  const headerInvalido = headersEsperados.some(function(h) { return snapshot.headers.indexOf(h) < 0; });
+  if (headerInvalido) {
+    normalizarAbaSessoes({ silent: true });
+    sheetInfo = getSheetOrFail('sessoes');
+    if (sheetInfo.error) return null;
+    snapshot = getSheetSnapshot(sheetInfo.sheet);
+  }
 
   const headers = snapshot.headers;
   const idxToken = headers.indexOf('token');
@@ -590,14 +682,28 @@ function obterContextoSessao(token) {
   const idxExpires = headers.indexOf('expires_at');
   const idxAtivo = headers.indexOf('ativo');
 
+  if ([idxToken, idxConsultor, idxExpires, idxAtivo].some(function(i){ return i < 0; })) {
+    logEstruturado('session.lookup.header_invalid', { token_prefix: String(token).slice(0, 8) }, 'WARN');
+    return null;
+  }
+
   for (let i = 0; i < snapshot.rows.length; i++) {
     const row = snapshot.rows[i];
-    if (row[idxToken] !== token) continue;
-    if (!toBooleanSafe(row[idxAtivo])) return null;
-    const expira = new Date(row[idxExpires]);
-    if (Number.isNaN(expira.getTime()) || expira <= new Date()) return null;
+    if (String(row[idxToken] || '') !== String(token)) continue;
+    if (!toBooleanSafe(row[idxAtivo])) {
+      logEstruturado('session.lookup.inactive', { consultor_id: row[idxConsultor] || '' }, 'WARN');
+      return null;
+    }
 
-    const consultorId = row[idxConsultor];
+    const expira = new Date(row[idxExpires]);
+    if (Number.isNaN(expira.getTime()) || expira <= new Date()) {
+      logEstruturado('session.lookup.expired', { consultor_id: row[idxConsultor] || '' }, 'WARN');
+      return null;
+    }
+
+    const consultorId = normalizeIdSafe(row[idxConsultor]);
+    if (!consultorId) return null;
+
     let tenantId = idxTenant >= 0 ? normalizeIdSafe(row[idxTenant]) : '';
     let perfil = idxPerfil >= 0 ? String(row[idxPerfil] || '').trim().toLowerCase() : '';
     const consultor = getConsultorById(consultorId);
@@ -614,6 +720,7 @@ function obterContextoSessao(token) {
     return { consultor_id: consultorId, tenant_id: tenantId, perfil: perfil || 'owner' };
   }
 
+  logEstruturado('session.lookup.not_found', { token_prefix: String(token).slice(0, 8) }, 'WARN');
   return null;
 }
 
@@ -867,9 +974,20 @@ function redefinirSenha(dados) {
  * Cria sessão (token) para o consultor
  */
 function criarSessao(consultorId, emailHash, contexto = {}) {
-  const sheetInfo = getSheetOrFail('sessoes');
+  let sheetInfo = getSheetOrFail('sessoes');
   if (sheetInfo.error) throw new Error(sheetInfo.error.erro);
-  const sheet = sheetInfo.sheet;
+  let sheet = sheetInfo.sheet;
+
+  const snapshotAtual = getSheetSnapshot(sheet);
+  const headersEsperados = SHEET_SCHEMAS.sessoes;
+  const headerInvalido = headersEsperados.some(function(h) { return snapshotAtual.headers.indexOf(h) < 0; });
+  if (headerInvalido) {
+    normalizarAbaSessoes({ silent: true });
+    sheetInfo = getSheetOrFail('sessoes');
+    if (sheetInfo.error) throw new Error(sheetInfo.error.erro);
+    sheet = sheetInfo.sheet;
+  }
+
   const token = Utilities.base64Encode(
     gerarUUID() + ':' + consultorId + ':' + new Date().getTime()
   );
@@ -877,13 +995,23 @@ function criarSessao(consultorId, emailHash, contexto = {}) {
   expira.setDate(expira.getDate() + 7); // 7 dias
 
   const agoraIso = new Date().toISOString();
-  const tenantId = normalizeIdSafe(contexto.tenant_id) || (getConsultorById(consultorId) && normalizeIdSafe(getConsultorById(consultorId).tenant_id)) || '';
-  const perfil = String(contexto.perfil || (getConsultorById(consultorId) && getConsultorById(consultorId).perfil) || 'owner').toLowerCase();
+  const consultor = getConsultorById(consultorId) || {};
+  const tenantId = normalizeIdSafe(contexto.tenant_id) || normalizeIdSafe(consultor.tenant_id) || garantirTenantParaConsultor(consultorId, consultor.nome, consultor.plano_saas);
+  const perfil = String(contexto.perfil || consultor.perfil || 'owner').toLowerCase();
 
-  sheet.appendRow([
-    token, tenantId, consultorId, perfil, emailHash,
-    agoraIso, expira.toISOString(), true
-  ]);
+  const headers = getSheetSnapshot(sheet).headers;
+  const linha = montarLinhaPorHeaders(headers, {
+    token: token,
+    tenant_id: tenantId,
+    consultor_id: consultorId,
+    perfil: perfil,
+    email_hash: emailHash,
+    created_at: agoraIso,
+    expires_at: expira.toISOString(),
+    ativo: true
+  });
+
+  sheet.appendRow(linha);
 
   return token;
 }
@@ -2193,6 +2321,7 @@ function api(params) {
       executar: () => setupSpreadsheet(),
       validarSchema: () => sucesso(validarSchemaAbas()),
       sanearTarefas: () => sanearTarefas5w2h(dados || {}),
+      normalizarSessoes: () => normalizarAbaSessoes(dados || {}),
     },
     admin: {
       'tenant.obter': () => adminObterTenant(token),

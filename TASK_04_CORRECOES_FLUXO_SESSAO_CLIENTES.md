@@ -137,3 +137,11 @@ Restabelecer operação estável de sessão e gestão de clientes sem necessidad
 ## Priorização sugerida
 - **P0 (imediato)**: Fases 1, 2, 3.
 - **P1 (sequência)**: Fases 4, 5.
+
+
+## Status de execução
+- [x] P0/Fase 1 executada: normalização da aba `sessoes` e rota de saneamento exposta.
+- [x] P0/Fase 2 executada: hardening de sessão no backend (`criarSessao`/`obterContextoSessao`) com auto-reparo e logs.
+- [x] P0/Fase 3 executada: fluxo de clientes com editar/inativar, fechamento de modal, toast e refresh pós-salvamento.
+- [ ] P1/Fase 4 pendente.
+- [ ] P1/Fase 5 pendente.

@@ -1004,6 +1004,8 @@ tr:last-child td { border-bottom: none; }
                         <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('projetos')">📋</button>
                         <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('diagnostico')">🔍</button>
                         <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('portal')">🌐</button>
+                        <button class="btn btn-ghost btn-sm" @click="editarCliente(c)">✏️</button>
+                        <button class="btn btn-ghost btn-sm" @click="inativarCliente(c)">⏸️</button>
                       </div>
                     </td>
                   </tr>
@@ -1461,7 +1463,7 @@ tr:last-child td { border-bottom: none; }
     <div class="modal-overlay" v-if="modal==='novoCliente'" @click.self="closeModal">
       <div class="modal">
         <div class="modal-header">
-          <div class="modal-title">🏢 Novo Cliente</div>
+          <div class="modal-title">{{ form.uuid ? '✏️ Editar Cliente' : '🏢 Novo Cliente' }}</div>
           <button class="modal-close" @click="closeModal">×</button>
         </div>
         <div class="form-group">
@@ -1501,7 +1503,7 @@ tr:last-child td { border-bottom: none; }
         </div>
         <div class="form-footer">
           <button class="btn btn-ghost" @click="closeModal">Cancelar</button>
-          <button class="btn btn-primary" @click="salvarCliente">Salvar Cliente</button>
+          <button class="btn btn-primary" @click="salvarCliente">{{ form.uuid ? 'Atualizar Cliente' : 'Salvar Cliente' }}</button>
         </div>
       </div>
     </div>
@@ -2050,13 +2052,13 @@ createApp({
       if (page === 'clientes' && sessionToken.value) {
         refreshClientes(sessionToken.value, true)
           .catch(function(err) {
-            console.error('[navigate/clientes]', err);
+            if (!handleSessionInvalid(err)) console.error('[navigate/clientes]', err);
           });
       }
       if (page === 'financeiro' && sessionToken.value) {
         refreshFinanceiro(sessionToken.value, true)
           .catch(function(err) {
-            console.error('[navigate/financeiro]', err);
+            if (!handleSessionInvalid(err)) console.error('[navigate/financeiro]', err);
           });
       }
       if (page === 'admin' && sessionToken.value) {
@@ -2213,6 +2215,18 @@ createApp({
       systemModal.value.open = false;
     }
 
+    function isSessionInvalidError(err) {
+      const msg = String((err && err.message) || err || '').toLowerCase();
+      return msg.indexOf('sessão inválida') >= 0 || msg.indexOf('session_invalid') >= 0;
+    }
+
+    function handleSessionInvalid(err) {
+      if (!isSessionInvalidError(err)) return false;
+      notify('Sua sessão expirou ou ficou inconsistente. Faça login novamente.', 'error');
+      doLogout();
+      return true;
+    }
+
     async function carregarDadosIniciais() {
       if (!sessionToken.value) return;
       const token = sessionToken.value;
@@ -2228,6 +2242,8 @@ createApp({
       const falhas = resultados.filter(function(r) { return r.status === 'rejected'; });
       if (falhas.length) {
         console.warn('[carregarDadosIniciais] falhas parciais:', falhas.map(function(f) { return f.reason && f.reason.message ? f.reason.message : String(f.reason); }));
+        const falhaSessao = falhas.find(function(f) { return isSessionInvalidError(f.reason); });
+        if (falhaSessao) handleSessionInvalid(falhaSessao.reason);
       }
     }
 
@@ -2281,6 +2297,10 @@ createApp({
             formDiag.value.cliente_id = normalizeIdSafe(clienteSelecionado.value && clienteSelecionado.value.uuid) || normalizeIdSafe(clientes.value[0].uuid);
           }
           console.log('[refreshClientes] clientes carregados:', clientes.value.length);
+        })
+        .catch(function(err) {
+          if (!handleSessionInvalid(err)) console.error('[refreshClientes] erro:', err);
+          throw err;
         });
     }
 
@@ -2310,7 +2330,7 @@ createApp({
           console.log('[refreshTarefas] tarefas carregadas:', tarefas.value.length);
         })
         .catch(function(err) {
-          console.error('[refreshTarefas] erro:', err);
+          if (!handleSessionInvalid(err)) console.error('[refreshTarefas] erro:', err);
           throw err;
         });
     }
@@ -2327,6 +2347,10 @@ createApp({
             (Array.isArray(res.diagnosticos) && res.diagnosticos) ||
             (res.dados && Array.isArray(res.dados.diagnosticos) && res.dados.diagnosticos) ||
             [];
+        })
+        .catch(function(err) {
+          if (!handleSessionInvalid(err)) console.error('[refreshDiagnosticos] erro:', err);
+          throw err;
         });
     }
 
@@ -2342,6 +2366,10 @@ createApp({
             (Array.isArray(res.registros) && res.registros) ||
             (res.dados && Array.isArray(res.dados.registros) && res.dados.registros) ||
             [];
+        })
+        .catch(function(err) {
+          if (!handleSessionInvalid(err)) console.error('[refreshFinanceiro] erro:', err);
+          throw err;
         });
     }
 
@@ -2471,6 +2499,12 @@ createApp({
 
         setAuthState('authenticated');
         await carregarDadosIniciais();
+
+        const authCheck = await gasClient.api({ modulo: 'auth', acao: 'verificar', token: sessionToken.value }, { retries: 0, timeoutMs: 15000, silent: true });
+        if (!authCheck || authCheck.sucesso === false || !authCheck.consultor_id) {
+          throw new Error((authCheck && authCheck.erro) || 'Sessão inválida');
+        }
+
         await refreshAdminConsole();
         if (billingInfo.value && billingInfo.value.plano) user.value.plano = billingInfo.value.plano;
         console.log('[doLogin] token recebido:', !!sessionToken.value);
@@ -2522,6 +2556,12 @@ createApp({
 
         setAuthState('authenticated');
         await carregarDadosIniciais();
+
+        const authCheck = await gasClient.api({ modulo: 'auth', acao: 'verificar', token: sessionToken.value }, { retries: 0, timeoutMs: 15000, silent: true });
+        if (!authCheck || authCheck.sucesso === false || !authCheck.consultor_id) {
+          throw new Error((authCheck && authCheck.erro) || 'Sessão inválida');
+        }
+
         await refreshAdminConsole();
         if (billingInfo.value && billingInfo.value.plano) user.value.plano = billingInfo.value.plano;
         setTimeout(initCharts, 300);
@@ -2558,6 +2598,9 @@ createApp({
           prazo_iso: String(data.prazo_iso || '').slice(0, 10)
         };
       }
+      if (name === 'novoCliente' && !data) {
+        form.value = { empresa_nome:'', segmento:'Tecnologia', status:'active', responsavel:'', mensalidade:'', obs:'' };
+      }
       if (name === 'novaTarefa') {
         formTarefa.value = {
           descricao: '',
@@ -2583,7 +2626,43 @@ createApp({
     }
 
     /* CRUD */
+    function editarCliente(cliente) {
+      if (!cliente) return;
+      form.value = {
+        uuid: cliente.uuid,
+        empresa_nome: cliente.empresa_nome || '',
+        segmento: cliente.segmento || 'Tecnologia',
+        status: cliente.status || 'active',
+        responsavel: cliente.responsavel || '',
+        mensalidade: cliente.mensalidade || '',
+        obs: cliente.obs || '',
+        email_contato: cliente.email_contato || '',
+        telefone: cliente.telefone || ''
+      };
+      openModal('novoCliente');
+    }
+
+    function inativarCliente(cliente) {
+      if (!cliente || !cliente.uuid) return;
+      if (!confirm('Deseja inativar este cliente?')) return;
+      loading.value = true;
+      gasClient.api({ modulo: 'clientes', acao: 'salvar', token: sessionToken.value, dados: { uuid: cliente.uuid, status: 'inactive' } }, { retries: 0 })
+        .then(function(res) {
+          if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao inativar cliente');
+          return Promise.all([
+            refreshClientes(sessionToken.value, true),
+            refreshDashboard(sessionToken.value, true)
+          ]);
+        })
+        .then(function(){ notify('Cliente inativado com sucesso.', 'success'); })
+        .catch(function(err){
+          if (!handleSessionInvalid(err)) notify((err && err.message) || String(err), 'error');
+        })
+        .finally(function(){ loading.value = false; });
+    }
+
     function salvarCliente() {
+      const isUpdate = !!form.value.uuid;
       loading.value = true;
       gasClient.api({ modulo: 'clientes', acao: 'salvar', token: sessionToken.value, dados: form.value }, { retries: 0 })
         .then(function(res) {
@@ -2595,8 +2674,8 @@ createApp({
             refreshDashboard(sessionToken.value, true)
           ]);
         })
-        .then(function(){ notify('Cliente salvo com sucesso.', 'success'); })
-        .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
+        .then(function(){ notify(isUpdate ? 'Cliente atualizado com sucesso.' : 'Cliente salvo com sucesso.', 'success'); })
+        .catch(function(err){ if (!handleSessionInvalid(err)) notify((err && err.message) || String(err), 'error'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -2975,7 +3054,7 @@ createApp({
       navigate, canAccessPage, refreshAdminConsole, selectCliente, doLogin, doSignup, doLogout,
       submitAuth, requestPasswordReset, confirmPasswordReset, toggleTheme,
       openModal, closeModal,
-      salvarCliente, salvarTarefa, atualizarTarefa, excluirTarefa,
+      salvarCliente, editarCliente, inativarCliente, salvarTarefa, atualizarTarefa, excluirTarefa,
       salvarDiagnostico, criarDiagnostico, marcarPago,
       gerarLinkPortal, verPreviewPortal, gerarRelatorio,
       gerarRelatorioTipo, runSetup, notifyModal, closeSystemModal,
