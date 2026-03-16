@@ -258,3 +258,5 @@ A evolução do SAE Pro para Enterprise foi mapeada com:
 - riscos e critérios de aceite de release.
 
 Consulte: `TASK_01_ENTERPRISE_EVOLUCAO.md`.
+
+Status atual: Sprint 1-2 (E1 + E2 base) executado parcialmente com fundação de tenant, sessão expandida e RBAC inicial no gateway.

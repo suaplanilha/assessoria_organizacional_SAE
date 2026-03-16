@@ -197,3 +197,23 @@ Todos os módulos funcionais devem carregar `tenant_id` obrigatório:
 - Sprint 4: E4 (console admin + UX de permissões).
 - Sprint 5: E5 (observabilidade/compliance) + hardening final.
 - Sprint 6: piloto controlado com 1-2 tenants enterprise.
+
+
+---
+
+## 11) Status de execução (Sprint 1-2)
+
+### Concluído nesta entrega
+- [x] E1-T1: `SCHEMA_VERSION` evoluído para `2.0.0` com novos schemas base Enterprise.
+- [x] E1-T2 (base): criação de `tb_empresas` no setup.
+- [x] E1-T3 (base): inclusão de `tenant_id` em schemas de consultores, clientes, diagnósticos, tarefas, financeiro e sessões.
+- [x] E1-T5 (base): gravações principais passam a preencher `tenant_id` derivado do contexto de sessão.
+- [x] E2-T1 (base): sessão expandida para `tenant_id` e `perfil`.
+- [x] E2-T2 (base): middleware RBAC no gateway `api(params)` com matriz de permissões por perfil.
+- [x] E2-T3 (base): seed de permissões padrão em `tb_permissoes` durante setup.
+- [x] E2-T4 (parcial): rotas administrativas iniciais `admin.tenantObter` e `admin.usuariosListar`.
+
+### Pendente para concluir Sprint 1-2 completo
+- [ ] E1-T4: backfill controlado legado `consultor_id -> tenant_id` com relatório formal de inconsistências.
+- [ ] E2-T4 completo: convite, alteração de perfil e desativação de usuários do tenant.
+- [ ] E2-T5: política avançada de revogação de sessão/expiração enterprise.
