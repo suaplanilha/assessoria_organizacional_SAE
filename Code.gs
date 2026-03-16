@@ -839,11 +839,15 @@ function salvarDiagnostico(token, dados) {
   const consultorId = verificarSessao(token);
   if (!consultorId) return falha('Sessão inválida');
 
+  dados = dados || {};
+  const clienteIdNormalizado = normalizeIdSafe(dados.cliente_id);
+  if (!clienteIdNormalizado) return falha('Cliente é obrigatório para salvar diagnóstico.');
+
   const sheet = getSpreadsheet().getSheetByName('diagnosticos');
   const agora = new Date().toISOString();
 
   // Calcula score baseado nas respostas
-  const { score, dimensoes } = calcularScore(dados.tipo_matriz, dados.respostas);
+  const { score, dimensoes } = calcularScore(dados.tipo_matriz, dados.respostas || {});
 
   if (dados.uuid) {
     // UPDATE

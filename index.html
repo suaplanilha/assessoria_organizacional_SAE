@@ -2063,13 +2063,18 @@ createApp({
       if (!sessionToken.value) return;
       const token = sessionToken.value;
 
-      await Promise.all([
+      const resultados = await Promise.allSettled([
         refreshDashboard(token, true),
         refreshClientes(token, true),
         refreshTarefas(token, true),
         refreshDiagnosticos(token, true),
         refreshFinanceiro(token, true)
       ]);
+
+      const falhas = resultados.filter(function(r) { return r.status === 'rejected'; });
+      if (falhas.length) {
+        console.warn('[carregarDadosIniciais] falhas parciais:', falhas.map(function(f) { return f.reason && f.reason.message ? f.reason.message : String(f.reason); }));
+      }
     }
 
     function refreshDashboard(token, silent) {
@@ -2087,8 +2092,10 @@ createApp({
         });
     }
 
-    function unwrapApiList(res, key) {
+    function unwrapApiList(res, key, opts = {}) {
+      const strict = opts.strict !== false;
       if (!res) {
+        if (!strict) return [];
         throw new Error('Resposta vazia da API.');
       }
       if (res.sucesso === false) {
@@ -2124,7 +2131,15 @@ createApp({
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
       console.log('[refreshTarefas] token?', !!t, 'clienteFiltro=', filtroCliente.value);
-      return gasClient.api({ modulo: 'tarefas', acao: 'listar', token: t, dados: { page: 1, pageSize: LIST_PAGE_SIZE } }, { retries: 0, silent: !!silent })
+      const payload = { modulo: 'tarefas', acao: 'listar', token: t, dados: { page: 1, pageSize: LIST_PAGE_SIZE } };
+      const opts = { retries: 0, silent: !!silent };
+      return gasClient.api(payload, opts)
+        .then(function(res) {
+          if (!res) {
+            return gasClient.api(payload, { retries: 1, silent: !!silent });
+          }
+          return res;
+        })
         .then(function(res) {
           console.log('[refreshTarefas] resposta bruta:', res);
           const incoming = unwrapApiList(res, 'tarefas');
@@ -2397,14 +2412,31 @@ createApp({
       gasClient.api({ modulo: 'tarefas', acao: 'salvar', token: sessionToken.value, dados: formTarefa.value }, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao salvar tarefa');
+
+          const tarefaLocal = {
+            ...formTarefa.value,
+            uuid: res.uuid || formTarefa.value.uuid || ('tmp_' + Date.now()),
+            status: normalizeTaskStatus(formTarefa.value.status),
+            cliente_id: normalizeIdSafe(formTarefa.value.cliente_id)
+          };
+          tarefas.value = [tarefaLocal].concat(tarefas.value.filter(function(t){ return t.uuid !== tarefaLocal.uuid; }));
+
           formTarefa.value = { descricao:'', responsavel:'', prazo_iso:'', onde:'', porque:'', como:'', custo:'', indicador:'', cliente_id:'', status:'iniciar', tipo:'Processo' };
           closeModal();
-          return Promise.all([
+
+          return Promise.allSettled([
             refreshTarefas(sessionToken.value, true),
             refreshDashboard(sessionToken.value, true)
           ]);
         })
-        .then(function(){ notify('Tarefa salva com sucesso.', 'success'); })
+        .then(function(results){
+          const falhas = (results || []).filter(function(r){ return r.status === 'rejected'; });
+          if (falhas.length) {
+            notify('Tarefa salva, mas houve atraso na atualização. Tente novamente em instantes.', 'info');
+            return;
+          }
+          notify('Tarefa salva com sucesso.', 'success');
+        })
         .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
         .finally(function(){ loading.value = false; });
     }
@@ -2415,13 +2447,28 @@ createApp({
       gasClient.api({ modulo: 'tarefas', acao: 'salvar', token: sessionToken.value, dados: tarefaSelecionada.value }, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao atualizar tarefa');
+
+          const tarefaLocal = {
+            ...tarefaSelecionada.value,
+            status: normalizeTaskStatus(tarefaSelecionada.value.status),
+            cliente_id: normalizeIdSafe(tarefaSelecionada.value.cliente_id)
+          };
+          tarefas.value = tarefas.value.map(function(t){ return t.uuid === tarefaLocal.uuid ? tarefaLocal : t; });
+
           closeModal();
-          return Promise.all([
+          return Promise.allSettled([
             refreshTarefas(sessionToken.value, true),
             refreshDashboard(sessionToken.value, true)
           ]);
         })
-        .then(function(){ notify('Tarefa atualizada com sucesso.', 'success'); })
+        .then(function(results){
+          const falhas = (results || []).filter(function(r){ return r.status === 'rejected'; });
+          if (falhas.length) {
+            notify('Tarefa atualizada, mas houve atraso na atualização da lista.', 'info');
+            return;
+          }
+          notify('Tarefa atualizada com sucesso.', 'success');
+        })
         .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
         .finally(function(){ loading.value = false; });
     }
@@ -2432,13 +2479,23 @@ createApp({
       gasClient.api({ modulo: 'tarefas', acao: 'salvar', token: sessionToken.value, dados: { uuid: t.uuid, status: 'deleted' } }, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao excluir tarefa');
+
+          tarefas.value = tarefas.value.filter(function(item){ return item.uuid !== t.uuid; });
           closeModal();
-          return Promise.all([
+
+          return Promise.allSettled([
             refreshTarefas(sessionToken.value, true),
             refreshDashboard(sessionToken.value, true)
           ]);
         })
-        .then(function(){ notify('Tarefa removida com sucesso.', 'success'); })
+        .then(function(results){
+          const falhas = (results || []).filter(function(r){ return r.status === 'rejected'; });
+          if (falhas.length) {
+            notify('Tarefa removida, mas houve atraso na atualização da lista.', 'info');
+            return;
+          }
+          notify('Tarefa removida com sucesso.', 'success');
+        })
         .catch(function(err){ notify((err && err.message) || String(err), 'error'); })
         .finally(function(){ loading.value = false; });
     }
@@ -2605,8 +2662,13 @@ createApp({
     /* HELPERS */
     function formatDate(iso) {
       if (!iso) return '—';
-      const d = new Date(iso + 'T00:00:00');
-      return d.toLocaleDateString('pt-BR');
+      const texto = String(iso).trim();
+      let d = new Date(texto);
+      if (Number.isNaN(d.getTime()) && /^\d{4}-\d{2}-\d{2}$/.test(texto)) {
+        d = new Date(texto + 'T00:00:00');
+      }
+      if (Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
     }
 
     function isOverdue(iso) {
