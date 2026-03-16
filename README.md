@@ -49,6 +49,31 @@
 - Faça login com qualquer e-mail (auto-cadastro no MVP)
 - Explore os módulos!
 
+### ✅ Checklist de Deploy (Fase 4)
+
+- [ ] Executar `setupSpreadsheet()` no editor GAS.
+- [ ] Executar `runApiContractTests()` e confirmar `sucesso: true`.
+- [ ] Publicar nova versão do Web App.
+- [ ] Abrir a URL publicada e validar tela de login.
+- [ ] Realizar login e confirmar sessão ativa.
+- [ ] Acessar Dashboard e verificar ausência de erros no console.
+- [ ] Validar fluxo mínimo ponta-a-ponta: Cliente → Tarefa → Financeiro.
+
+### 🔎 Smoke test rápido (produção)
+
+1. Login com consultor existente (ou auto-cadastro MVP).
+2. Criar um cliente novo.
+3. Criar uma tarefa 5W2H para este cliente.
+4. Registrar mensalidade (pago/pendente).
+5. Reabrir app e confirmar sessão válida sem novo login imediato.
+
+### 🎯 Critérios de aceite (próxima iteração)
+
+- Login funcional em Web App publicado.
+- Sessão persistindo e validando por 7 dias.
+- Dashboard carregando dados reais sem erro JS no console.
+- Fluxos críticos (cliente, tarefa, financeiro) funcionando de ponta a ponta.
+
 ---
 
 ## 🏗️ Arquitetura
