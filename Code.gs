@@ -42,6 +42,9 @@ const SHEET_SCHEMAS = {
   tb_permissoes: [
     'perfil', 'recurso', 'permitido', 'created_at'
   ],
+  tb_auditoria: [
+    'uuid', 'tenant_id', 'consultor_id', 'perfil', 'modulo', 'acao', 'sucesso', 'codigo', 'mensagem', 'payload_json', 'created_at'
+  ],
   consultores: [
     'uuid', 'tenant_id', 'perfil', 'nome', 'email', 'email_hash', 'senha_hash', 'plano_saas',
     'data_adesao', 'ativo', 'configuracoes_json',
@@ -82,7 +85,14 @@ const RBAC_PERMISSOES_PADRAO = {
     'financeiro.*',
     'dashboard.kpis',
     'relatorios.gerar',
-    'portal.link'
+    'portal.link',
+    'auditoria.listar',
+    'admin.tenant.obter',
+    'admin.tenant.atualizar',
+    'admin.usuarios.listar',
+    'billing.assinatura.obter',
+    'billing.assinatura.alterarPlano',
+    'billing.assinatura.status'
   ],
   analyst: [
     'auth.verificar',
@@ -92,7 +102,11 @@ const RBAC_PERMISSOES_PADRAO = {
     'financeiro.listar',
     'dashboard.kpis',
     'relatorios.gerar',
-    'portal.link'
+    'portal.link',
+    'auditoria.listar',
+    'admin.usuarios.listar',
+    'billing.assinatura.obter',
+    'billing.assinatura.status'
   ],
   viewer: [
     'auth.verificar',
@@ -122,6 +136,10 @@ function sucesso(dados = {}, extras = {}) {
 
 function falha(erro, extras = {}) {
   return Object.assign({ sucesso: false, erro, dados: null }, extras);
+}
+
+function falhaCodigo(codigo, erro, extras = {}) {
+  return falha(erro, Object.assign({ codigo }, extras));
 }
 
 function toBooleanSafe(v) {
@@ -1807,6 +1825,128 @@ function adminListarUsuarios(token, opts = {}) {
   return sucesso({ usuarios: usuarios, total: usuarios.length });
 }
 
+
+function registrarAuditoria(evento = {}) {
+  try {
+    const sheetInfo = getSheetOrFail('tb_auditoria');
+    if (sheetInfo.error) return;
+    const sheet = sheetInfo.sheet;
+    sheet.appendRow([
+      gerarUUID(),
+      evento.tenant_id || '',
+      evento.consultor_id || '',
+      evento.perfil || '',
+      evento.modulo || '',
+      evento.acao || '',
+      evento.sucesso === true,
+      evento.codigo || '',
+      evento.mensagem || '',
+      JSON.stringify(evento.payload || {}),
+      new Date().toISOString()
+    ]);
+  } catch (err) {
+    logEstruturado('auditoria.append.error', { mensagem: err.message }, 'ERROR');
+  }
+}
+
+function adminAtualizarTenant(token, dados = {}) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+
+  const sheetInfo = getSheetOrFail('tb_empresas');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
+  const linha = encontrarLinha(sheet, contexto.tenant_id);
+  if (!linha) return falhaCodigo('tenant_not_found', 'Tenant não encontrado.');
+
+  const headers = linha.headers;
+  const permitidos = ['nome', 'plano', 'status', 'max_usuarios', 'max_clientes'];
+  permitidos.forEach(function(campo) {
+    if (dados[campo] !== undefined) {
+      const idx = headers.indexOf(campo);
+      if (idx >= 0) sheet.getRange(linha.row, idx + 1).setValue(dados[campo]);
+    }
+  });
+  const idxUpdated = headers.indexOf('updated_at');
+  if (idxUpdated >= 0) sheet.getRange(linha.row, idxUpdated + 1).setValue(new Date().toISOString());
+  return sucesso({ tenant_id: contexto.tenant_id, atualizado: true });
+}
+
+function billingAssinaturaObter(token) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+  const sheetInfo = getSheetOrFail('tb_empresas');
+  if (sheetInfo.error) return sheetInfo.error;
+  const registros = sheetParaObjetos(sheetInfo.sheet, { tenant_id: contexto.tenant_id });
+  const tenant = registros[0];
+  if (!tenant) return falhaCodigo('tenant_not_found', 'Tenant não encontrado.');
+  return sucesso({
+    tenant_id: tenant.tenant_id,
+    plano: tenant.plano || 'Pro',
+    status: tenant.status || 'active',
+    limites: {
+      max_usuarios: toNumberSafe(tenant.max_usuarios, 0),
+      max_clientes: toNumberSafe(tenant.max_clientes, 0)
+    }
+  });
+}
+
+function billingAssinaturaAlterarPlano(token, dados = {}) {
+  const novoPlano = String(dados.plano || '').trim();
+  if (!novoPlano) return falhaCodigo('validation_error', 'Plano é obrigatório.');
+
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+
+  const limitesPorPlano = {
+    Pro: { max_usuarios: 5, max_clientes: 200 },
+    Enterprise: { max_usuarios: 100, max_clientes: 5000 }
+  };
+  const limites = limitesPorPlano[novoPlano] || limitesPorPlano.Pro;
+
+  return adminAtualizarTenant(token, {
+    plano: novoPlano,
+    max_usuarios: limites.max_usuarios,
+    max_clientes: limites.max_clientes,
+    status: 'active'
+  });
+}
+
+function billingAssinaturaStatus(token) {
+  const assinatura = billingAssinaturaObter(token);
+  if (!assinatura || assinatura.sucesso === false) return assinatura;
+  const dados = assinatura.dados || assinatura;
+  if (String(dados.status || '').toLowerCase() !== 'active') {
+    return falhaCodigo('tenant_inativo', 'Tenant inativo para operações de billing.', assinatura);
+  }
+  return assinatura;
+}
+
+function auditoriaListar(token, opts = {}) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+
+  const pag = parsePaginacao(opts);
+  const sheetInfo = getSheetOrFail('tb_auditoria');
+  if (sheetInfo.error) return sheetInfo.error;
+
+  let eventos = sheetParaObjetos(sheetInfo.sheet, { tenant_id: contexto.tenant_id });
+  if (opts.modulo) eventos = eventos.filter(e => String(e.modulo || '') === String(opts.modulo));
+  if (opts.acao) eventos = eventos.filter(e => String(e.acao || '') === String(opts.acao));
+
+  const total = eventos.length;
+  const itens = eventos.slice(pag.offset, pag.offset + pag.pageSize);
+  return sucesso({
+    eventos: itens,
+    paginacao: {
+      page: pag.page,
+      pageSize: pag.pageSize,
+      total,
+      totalPages: Math.ceil(total / pag.pageSize) || 1
+    }
+  });
+}
+
 // ============================================================
 // INTEGRAÇÃO FRONTEND-BACKEND via google.script.run
 // ============================================================
@@ -1821,7 +1961,8 @@ function adminListarUsuarios(token, opts = {}) {
  *     .api({ modulo: 'clientes', acao: 'listar', token: '...' })
  */
 function api(params) {
-  const { modulo, acao, token, dados } = params || {};
+  const { modulo, acao, token, dados, api_version } = params || {};
+  const versaoApi = String(api_version || 'v1').toLowerCase();
 
   const roteamento = {
     auth: {
@@ -1865,8 +2006,19 @@ function api(params) {
       sanearTarefas: () => sanearTarefas5w2h(dados || {}),
     },
     admin: {
+      'tenant.obter': () => adminObterTenant(token),
+      'tenant.atualizar': () => adminAtualizarTenant(token, dados || {}),
+      'usuarios.listar': () => adminListarUsuarios(token, dados || {}),
       tenantObter: () => adminObterTenant(token),
       usuariosListar: () => adminListarUsuarios(token, dados || {})
+    },
+    billing: {
+      'assinatura.obter': () => billingAssinaturaObter(token),
+      'assinatura.alterarPlano': () => billingAssinaturaAlterarPlano(token, dados || {}),
+      'assinatura.status': () => billingAssinaturaStatus(token)
+    },
+    auditoria: {
+      listar: () => auditoriaListar(token, dados || {})
     }
   };
 
@@ -1880,34 +2032,59 @@ function api(params) {
     let contexto = null;
     if (!publico) {
       contexto = obterContextoSessao(token);
-      if (!contexto || !contexto.consultor_id) return falha('Sessão inválida');
+      if (!contexto || !contexto.consultor_id) return falhaCodigo('session_invalid', 'Sessão inválida');
       if (!temPermissao(contexto.perfil, modulo, acao)) {
-        return falha('Acesso negado: permissão insuficiente.', { codigo: 'forbidden', perfil: contexto.perfil, modulo, acao });
+        return falhaCodigo('forbidden', 'Acesso negado: permissão insuficiente.', { perfil: contexto.perfil, modulo, acao });
       }
     }
 
     const fn = roteamento[modulo]?.[acao];
     if (!fn) {
       registrarTelemetria('api', 'rota_nao_encontrada');
-      return falha(`Rota não encontrada: ${modulo}.${acao}`);
+      return falhaCodigo('route_not_found', `Rota não encontrada: ${modulo}.${acao}`);
     }
 
     const raw = fn();
+    let resposta;
     if (raw && raw.sucesso === true) {
-      if (raw.dados !== undefined) return raw;
-      const payload = Object.assign({}, raw);
-      delete payload.sucesso;
-      return sucesso(payload, payload);
-    }
-    if (raw && raw.erro) {
+      if (raw.dados !== undefined) resposta = raw;
+      else {
+        const payload = Object.assign({}, raw);
+        delete payload.sucesso;
+        resposta = sucesso(payload, payload);
+      }
+    } else if (raw && raw.erro) {
       registrarTelemetria(modulo || 'api', 'erro_negocio');
-      return falha(raw.erro, raw);
+      resposta = falha(raw.erro, raw);
+    } else {
+      resposta = sucesso(raw || {});
     }
-    return sucesso(raw || {});
+
+    if (!publico && contexto) {
+      const acaoMutante = ['salvar', 'excluir', 'mover', 'registrar', 'alterarPlano', 'atualizar', 'executar'].some(function(k) { return String(acao || '').indexOf(k) >= 0; });
+      if (acaoMutante || modulo === 'admin' || modulo === 'billing') {
+        registrarAuditoria({
+          tenant_id: contexto.tenant_id,
+          consultor_id: contexto.consultor_id,
+          perfil: contexto.perfil,
+          modulo,
+          acao,
+          sucesso: resposta && resposta.sucesso === true,
+          codigo: (resposta && resposta.codigo) || '',
+          mensagem: (resposta && resposta.erro) || 'ok',
+          payload: dados || {}
+        });
+      }
+    }
+
+    if (versaoApi === 'v2') {
+      return Object.assign({ api_version: 'v2', timestamp: new Date().toISOString() }, resposta);
+    }
+    return resposta;
   } catch (err) {
     registrarTelemetria(modulo || 'api', 'exception');
     logEstruturado('api.exception', { modulo, acao, mensagem: err.message }, 'ERROR');
-    return falha(err.message);
+    return falhaCodigo('internal_error', err.message);
   }
 }
 
@@ -2008,6 +2185,18 @@ function runApiContractTests() {
     );
   } else {
     expect(false, 'tarefas_listar_token_valido_retorna_nao_vazio', 'Não foi possível criar/login usuário de contrato');
+  }
+
+
+  if (tokenValido) {
+    const adminUsers = api({ modulo: 'admin', acao: 'usuarios.listar', token: tokenValido, api_version: 'v2', dados: {} });
+    expect(adminUsers && adminUsers.sucesso === true && adminUsers.api_version === 'v2', 'admin_usuarios_listar_v2_ok', JSON.stringify(adminUsers));
+
+    const billingStatus = api({ modulo: 'billing', acao: 'assinatura.status', token: tokenValido, api_version: 'v2' });
+    expect(billingStatus && typeof billingStatus.sucesso === 'boolean' && billingStatus.api_version === 'v2', 'billing_assinatura_status_v2_contrato', JSON.stringify(billingStatus));
+
+    const auditoria = api({ modulo: 'auditoria', acao: 'listar', token: tokenValido, dados: { page: 1, pageSize: 20 } });
+    expect(auditoria && auditoria.sucesso === true && Array.isArray((auditoria.dados && auditoria.dados.eventos) || auditoria.eventos || []), 'auditoria_listar_contrato', JSON.stringify(auditoria));
   }
 
   const schemaCheck = api({ modulo: 'setup', acao: 'validarSchema' });

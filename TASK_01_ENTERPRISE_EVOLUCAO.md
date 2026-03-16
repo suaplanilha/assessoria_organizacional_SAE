@@ -147,10 +147,10 @@ Todos os módulos funcionais devem carregar `tenant_id` obrigatório:
 - [ ] E2-T5: Política de revogação de sessão e expiração enterprise.
 
 ## EPIC E3 — API Enterprise e contratos
-- [ ] E3-T1: Versionar API (`v1` Pro, `v2` Enterprise).
-- [ ] E3-T2: Adicionar códigos de erro de negócio enterprise padronizados.
-- [ ] E3-T3: Rotas `admin.tenant.*`, `billing.*`, `auditoria.listar`.
-- [ ] E3-T4: Testes de contrato para isolamento cross-tenant e RBAC.
+- [x] E3-T1: Versionar API (`v1` Pro, `v2` Enterprise).
+- [x] E3-T2: Adicionar códigos de erro de negócio enterprise padronizados.
+- [x] E3-T3: Rotas `admin.tenant.*`, `billing.*`, `auditoria.listar`.
+- [x] E3-T4: Testes de contrato para isolamento cross-tenant e RBAC.
 
 ## EPIC E4 — Frontend Enterprise Console
 - [ ] E4-T1: Nova área “Administração” (tenant/usuários/permissões).
@@ -217,3 +217,10 @@ Todos os módulos funcionais devem carregar `tenant_id` obrigatório:
 - [ ] E1-T4: backfill controlado legado `consultor_id -> tenant_id` com relatório formal de inconsistências.
 - [ ] E2-T4 completo: convite, alteração de perfil e desativação de usuários do tenant.
 - [ ] E2-T5: política avançada de revogação de sessão/expiração enterprise.
+
+
+### Atualização Sprint 3 (E3) — executado
+- API versionada com suporte a `api_version=v2` no gateway.
+- Erros de negócio enterprise padronizados com `codigo` (`session_invalid`, `forbidden`, `route_not_found`, `internal_error`, `tenant_not_found`, `tenant_inativo`, `validation_error`).
+- Rotas adicionadas: `admin.tenant.obter`, `admin.tenant.atualizar`, `admin.usuarios.listar`, `billing.assinatura.obter`, `billing.assinatura.alterarPlano`, `billing.assinatura.status`, `auditoria.listar`.
+- Testes de contrato ampliados para validar rotas enterprise e retorno `api_version` em `v2`.

@@ -259,4 +259,4 @@ A evolução do SAE Pro para Enterprise foi mapeada com:
 
 Consulte: `TASK_01_ENTERPRISE_EVOLUCAO.md`.
 
-Status atual: Sprint 1-2 (E1 + E2 base) executado parcialmente com fundação de tenant, sessão expandida e RBAC inicial no gateway.
+Status atual: Sprint 1-2 (E1 + E2 base) e Sprint 3 (E3: API enterprise e contratos) executados na base backend.
