@@ -266,3 +266,5 @@ Runbook operacional/compliance: `TASK_02_RUNBOOK_OBSERVABILIDADE_COMPLIANCE.md`.
 
 
 Pilot rollout controlado: `TASK_03_PILOTO_CONTROLADO_ENTERPRISE.md`.
+
+Task de correções QA: `TASK_04_CORRECOES_FLUXO_SESSAO_CLIENTES.md`.
