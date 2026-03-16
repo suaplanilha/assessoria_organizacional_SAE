@@ -244,3 +244,17 @@ google.script.run
 
 *SAE — Sistema Apollo Enterprise · Desenvolvido com Google Apps Script + Vue 3*
 *Mascote oficial: Apollo 🐾 (Shih Tzu)*
+
+
+---
+
+## 🏢 Roadmap Enterprise
+
+A evolução do SAE Pro para Enterprise foi mapeada com:
+- arquitetura alvo multi-tenant,
+- plano de migração de schema,
+- backlog por épicos (E1..E5),
+- proposta de novas APIs administrativas,
+- riscos e critérios de aceite de release.
+
+Consulte: `TASK_01_ENTERPRISE_EVOLUCAO.md`.
