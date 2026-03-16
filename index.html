@@ -1518,28 +1518,58 @@ tr:last-child td { border-bottom: none; }
     <div class="modal-overlay" v-if="modal==='verTarefa'" @click.self="closeModal">
       <div class="modal modal-lg" v-if="tarefaSelecionada">
         <div class="modal-header">
-          <div class="modal-title">📋 {{ tarefaSelecionada.descricao }}</div>
+          <div class="modal-title">📋 Editar Tarefa 5W2H</div>
           <button class="modal-close" @click="closeModal">×</button>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-          <div v-for="campo in campos5W2H(tarefaSelecionada)" :key="campo.label" style="padding:12px;background:var(--bg-glass);border-radius:8px;border:1px solid var(--border);">
-            <div style="font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:4px;">{{ campo.label }}</div>
-            <div style="font-size:13px;color:var(--text-primary);">{{ campo.valor || '—' }}</div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">O QUE (What)</label>
+            <input class="form-input" v-model="tarefaSelecionada.descricao">
+          </div>
+          <div class="form-group">
+            <label class="form-label">QUEM (Who)</label>
+            <input class="form-input" v-model="tarefaSelecionada.responsavel">
+          </div>
+          <div class="form-group">
+            <label class="form-label">QUANDO (When)</label>
+            <input class="form-input" type="date" v-model="tarefaSelecionada.prazo_iso">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select class="form-select" v-model="tarefaSelecionada.status">
+              <option value="iniciar">A Iniciar</option>
+              <option value="execucao">Em Execução</option>
+              <option value="validando">Validando</option>
+              <option value="concluido">Concluído</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">ONDE (Where)</label>
+            <input class="form-input" v-model="tarefaSelecionada.onde">
+          </div>
+          <div class="form-group">
+            <label class="form-label">POR QUÊ (Why)</label>
+            <input class="form-input" v-model="tarefaSelecionada.porque">
+          </div>
+          <div class="form-group">
+            <label class="form-label">COMO (How)</label>
+            <input class="form-input" v-model="tarefaSelecionada.como">
+          </div>
+          <div class="form-group">
+            <label class="form-label">QUANTO CUSTA</label>
+            <input class="form-input" v-model="tarefaSelecionada.custo">
+          </div>
+          <div class="form-group">
+            <label class="form-label">COMO MEDIR</label>
+            <input class="form-input" v-model="tarefaSelecionada.indicador">
+          </div>
+          <div class="form-group">
+            <label class="form-label">📎 Evidência</label>
+            <input class="form-input" v-model="tarefaSelecionada.evidencia" placeholder="https://foto.link / descrição">
           </div>
         </div>
-        <div style="margin-top:18px;">
-          <label class="form-label">Status</label>
-          <select class="form-select" style="width:auto;" v-model="tarefaSelecionada.status">
-            <option value="iniciar">A Iniciar</option>
-            <option value="execucao">Em Execução</option>
-            <option value="validando">Validando</option>
-            <option value="concluido">Concluído</option>
-          </select>
-        </div>
-        <div style="margin-top:14px;">
-          <label class="form-label">📎 Evidência (URL ou descrição)</label>
-          <input class="form-input" placeholder="https://foto.link / Descrição da conclusão...">
-        </div>
+
         <div class="form-footer">
           <button class="btn btn-danger btn-sm" @click="excluirTarefa(tarefaSelecionada)">Excluir</button>
           <div style="flex:1;"></div>
@@ -1698,7 +1728,10 @@ createApp({
         validacao: 'validando',
         validação: 'validando',
         concluido: 'concluido',
-        concluído: 'concluido'
+        concluído: 'concluido',
+        deleted: 'deleted',
+        excluido: 'deleted',
+        excluído: 'deleted'
       };
       return map[raw] || 'iniciar';
     }
@@ -2123,6 +2156,9 @@ createApp({
             (res.dados && Array.isArray(res.dados.clientes) && res.dados.clientes) ||
             [];
 
+          if (!normalizeIdSafe(formDiag.value.cliente_id) && clientes.value.length) {
+            formDiag.value.cliente_id = normalizeIdSafe(clienteSelecionado.value && clienteSelecionado.value.uuid) || normalizeIdSafe(clientes.value[0].uuid);
+          }
           console.log('[refreshClientes] clientes carregados:', clientes.value.length);
         });
     }
@@ -2357,7 +2393,14 @@ createApp({
     /* MODAIS */
     function openModal(name, data = null) {
       modal.value = name;
-      if (name === 'verTarefa' && data) tarefaSelecionada.value = data;
+      if (name === 'verTarefa' && data) {
+        tarefaSelecionada.value = {
+          ...data,
+          status: normalizeTaskStatus(data.status),
+          cliente_id: normalizeIdSafe(data.cliente_id),
+          prazo_iso: String(data.prazo_iso || '').slice(0, 10)
+        };
+      }
       if (name === 'novaTarefa') {
         formTarefa.value = {
           descricao: '',
@@ -2501,10 +2544,21 @@ createApp({
     }
 
     function salvarDiagnostico() {
+      const clienteDiagId =
+        normalizeIdSafe(formDiag.value.cliente_id) ||
+        normalizeIdSafe(clienteSelecionado.value && clienteSelecionado.value.uuid) ||
+        normalizeIdSafe(filtroCliente.value) ||
+        normalizeIdSafe(clientes.value[0] && clientes.value[0].uuid);
+      if (!clienteDiagId) {
+        notify('Selecione um cliente para salvar o diagnóstico.', 'error');
+        return;
+      }
+      formDiag.value.cliente_id = clienteDiagId;
+
       loading.value = true;
       const respostas = {};
       questionario5S.value.forEach(function(q, i){ respostas['q' + (i+1)] = Number(q.resposta || 0); });
-      gasClient.api({ modulo: 'diagnosticos', acao: 'salvar', token: sessionToken.value, dados: { cliente_id: formDiag.value.cliente_id, tipo_matriz: formDiag.value.tipo, respostas: respostas } }, { retries: 0 })
+      gasClient.api({ modulo: 'diagnosticos', acao: 'salvar', token: sessionToken.value, dados: { cliente_id: clienteDiagId, tipo_matriz: formDiag.value.tipo, respostas: respostas } }, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao salvar diagnóstico');
           closeModal();

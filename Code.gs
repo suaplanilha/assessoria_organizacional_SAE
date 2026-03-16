@@ -214,7 +214,10 @@ function normalizeStatusTarefa(v) {
     validação: 'validando',
     concluido: 'concluido',
     concluído: 'concluido',
-    done: 'concluido'
+    done: 'concluido',
+    deleted: 'deleted',
+    excluido: 'deleted',
+    excluído: 'deleted'
   };
   return mapa[raw] || 'iniciar';
 }
@@ -832,6 +835,21 @@ function listarDiagnosticos(token, clienteId = null) {
   return { sucesso: true, diagnosticos };
 }
 
+function atualizarMaturidadeCliente(consultorId, clienteId, score) {
+  if (!clienteId) return;
+  const sheetInfo = getSheetOrFail('clientes');
+  if (sheetInfo.error) return;
+  const sheet = sheetInfo.sheet;
+  const linha = encontrarLinha(sheet, clienteId);
+  if (!linha) return;
+  const headers = linha.headers;
+  const idxConsultor = headers.indexOf('consultor_id');
+  const idxMaturidade = headers.indexOf('maturidade');
+  if (idxMaturidade < 0) return;
+  if (idxConsultor >= 0 && String(linha.data[idxConsultor] || '') !== String(consultorId || '')) return;
+  sheet.getRange(linha.row, idxMaturidade + 1).setValue(toNumberSafe(score, 0));
+}
+
 /**
  * Salva um diagnóstico e calcula o score automaticamente
  */
@@ -858,6 +876,8 @@ function salvarDiagnostico(token, dados) {
     sheet.getRange(linha.row, headers.indexOf('score') + 1).setValue(score);
     sheet.getRange(linha.row, headers.indexOf('dimensoes_json') + 1).setValue(JSON.stringify(dimensoes));
     sheet.getRange(linha.row, headers.indexOf('status') + 1).setValue('concluido');
+    atualizarMaturidadeCliente(consultorId, clienteIdNormalizado, score);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, score, dimensoes };
   } else {
     // INSERT
@@ -874,6 +894,8 @@ function salvarDiagnostico(token, dados) {
       agora,
       'concluido'
     ]);
+    atualizarMaturidadeCliente(consultorId, clienteIdNormalizado, score);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid, score, dimensoes };
   }
 }
