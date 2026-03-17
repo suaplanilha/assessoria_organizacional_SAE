@@ -2240,7 +2240,8 @@ createApp({
       ).then(function(res) {
         if (!res) throw new Error('Resposta vazia da API.');
         if (res.sucesso === false) throw new Error(res.erro || 'Falha na API.');
-        return res;
+        const dadosMerge = (res && res.dados && typeof res.dados === 'object') ? res.dados : {};
+        return Object.assign({}, res, dadosMerge);
       });
     }
 
@@ -2332,18 +2333,21 @@ createApp({
       return [];
     }
 
-    function refreshClientes(token, silent) {
+    function refreshClientes(token, silent, forceFresh) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
-      return apiCall('clientes', 'listar', { page: 1, pageSize: LIST_PAGE_SIZE }, { token: t, retries: 1, silent: !!silent })
+      return apiCall('clientes', 'listar', { page: 1, pageSize: LIST_PAGE_SIZE, no_cache: !!forceFresh }, { token: t, retries: 1, silent: !!silent })
         .then(function(res) {
           if (!res) throw new Error('Resposta vazia ao listar clientes.');
           if (res.sucesso === false) throw new Error(res.erro || 'Falha ao listar clientes.');
 
-          clientes.value =
+          const incoming =
             (Array.isArray(res.clientes) && res.clientes) ||
             (res.dados && Array.isArray(res.dados.clientes) && res.dados.clientes) ||
             [];
+          clientes.value = incoming.map(function(c) {
+            return Object.assign({}, c, { uuid: c.uuid || c.id || '' });
+          });
 
           if (!normalizeIdSafe(formDiag.value.cliente_id) && clientes.value.length) {
             formDiag.value.cliente_id = normalizeIdSafe(clienteSelecionado.value && clienteSelecionado.value.uuid) || normalizeIdSafe(clientes.value[0].uuid);
@@ -2356,11 +2360,11 @@ createApp({
         });
     }
 
-    function refreshTarefas(token, silent) {
+    function refreshTarefas(token, silent, forceFresh) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
       console.log('[refreshTarefas] token?', !!t, 'clienteFiltro=', filtroCliente.value);
-      const payload = { modulo: 'tarefas', acao: 'listar', token: t, dados: { page: 1, pageSize: LIST_PAGE_SIZE } };
+      const payload = { modulo: 'tarefas', acao: 'listar', token: t, dados: { page: 1, pageSize: LIST_PAGE_SIZE, no_cache: !!forceFresh } };
       const opts = { retries: 0, silent: !!silent };
       return apiCall(payload.modulo, payload.acao, payload.dados, { token: payload.token, retries: opts.retries, silent: opts.silent })
         .then(function(res) {
@@ -2375,6 +2379,7 @@ createApp({
           tarefas.value = incoming.map(function(task) {
             return {
               ...task,
+              uuid: task.uuid || task.id || '',
               status: normalizeTaskStatus(task.status),
               cliente_id: normalizeIdSafe(task.cliente_id)
             };
@@ -2707,7 +2712,7 @@ createApp({
         .then(function(res) {
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao inativar cliente');
           return Promise.all([
-            refreshClientes(sessionToken.value, true),
+            refreshClientes(sessionToken.value, true, true),
             refreshDashboard(sessionToken.value, true)
           ]);
         })
@@ -2727,7 +2732,7 @@ createApp({
           form.value = { empresa_nome:'', segmento:'Tecnologia', status:'active', responsavel:'', mensalidade:'', obs:'' };
           closeModal();
           return Promise.all([
-            refreshClientes(sessionToken.value, true),
+            refreshClientes(sessionToken.value, true, true),
             refreshDashboard(sessionToken.value, true)
           ]);
         })
@@ -2761,7 +2766,7 @@ createApp({
           closeModal();
 
           return Promise.allSettled([
-            refreshTarefas(sessionToken.value, true),
+            refreshTarefas(sessionToken.value, true, true),
             refreshDashboard(sessionToken.value, true)
           ]);
         })
@@ -2793,7 +2798,7 @@ createApp({
 
           closeModal();
           return Promise.allSettled([
-            refreshTarefas(sessionToken.value, true),
+            refreshTarefas(sessionToken.value, true, true),
             refreshDashboard(sessionToken.value, true)
           ]);
         })
@@ -2820,7 +2825,7 @@ createApp({
           closeModal();
 
           return Promise.allSettled([
-            refreshTarefas(sessionToken.value, true),
+            refreshTarefas(sessionToken.value, true, true),
             refreshDashboard(sessionToken.value, true)
           ]);
         })

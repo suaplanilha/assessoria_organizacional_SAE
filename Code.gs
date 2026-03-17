@@ -1085,9 +1085,10 @@ function listarClientes(token, opts = {}) {
   const contexto = obterContextoSessao(token);
 
   const pag = parsePaginacao(opts);
+  const forceFresh = toBooleanSafe(opts.no_cache) || toBooleanSafe(opts.force_fresh);
   const cacheVer = getConsultorCacheVersion(consultorId);
   const cacheKey = `clientes:${consultorId}:v${cacheVer}:t${(contexto && contexto.tenant_id) || 'legacy'}:p${pag.page}:s${pag.pageSize}:q${opts.query || ''}`;
-  const cacheHit = getCacheJSON(cacheKey);
+  const cacheHit = !forceFresh ? getCacheJSON(cacheKey) : null;
   if (cacheHit) {
     logEstruturado('clientes.listar.result', {
       fonte: 'cache',
@@ -1129,7 +1130,7 @@ function listarClientes(token, opts = {}) {
   };
 
   const resposta = { sucesso: true, clientes: itens, paginacao };
-  setCacheJSON(cacheKey, resposta, CACHE_TTL_LISTA);
+  if (!forceFresh) setCacheJSON(cacheKey, resposta, CACHE_TTL_LISTA);
   return resposta;
 }
 
@@ -1344,10 +1345,11 @@ function listarTarefas(token, clienteId = null, opts = {}) {
   if (!consultorId) return falha('Sessão inválida');
 
   const pag = parsePaginacao(opts);
+  const forceFresh = toBooleanSafe(opts.no_cache) || toBooleanSafe(opts.force_fresh);
   const cacheVer = getConsultorCacheVersion(consultorId);
   const contexto = obterContextoSessao(token);
   const cacheKey = `tarefas:${consultorId}:v${cacheVer}:t${(contexto && contexto.tenant_id) || 'legacy'}:${clienteId || 'all'}:p${pag.page}:s${pag.pageSize}`;
-  const cacheHit = getCacheJSON(cacheKey);
+  const cacheHit = !forceFresh ? getCacheJSON(cacheKey) : null;
   if (cacheHit) {
     logEstruturado('tarefas.listar.result', {
       fonte: 'cache',
@@ -1393,7 +1395,7 @@ function listarTarefas(token, clienteId = null, opts = {}) {
     total,
     retornadas: tarefas.length
   });
-  setCacheJSON(cacheKey, resposta, CACHE_TTL_LISTA);
+  if (!forceFresh) setCacheJSON(cacheKey, resposta, CACHE_TTL_LISTA);
   return resposta;
 }
 
