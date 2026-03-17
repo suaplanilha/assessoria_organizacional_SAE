@@ -145,3 +145,10 @@ Restabelecer operação estável de sessão e gestão de clientes sem necessidad
 - [x] P0/Fase 3 executada: fluxo de clientes com editar/inativar, fechamento de modal, toast e refresh pós-salvamento.
 - [x] P1/Fase 4 executada: hardening de parsing/interceptors (`safeJsonParse`) e validação de resposta com log técnico (`request_id`).
 - [x] P1/Fase 5 executada: carga inicial sequencial (`clientes` primeiro) e retries com backoff no RPC.
+
+
+## Aprimoramentos adicionais (pós-P1)
+- Centralização de chamadas via `apiCall(modulo, acao, dados, options)` no frontend para injeção automática de token e tratamento uniforme de `res.sucesso`/`res.dados`.
+- Persistência redundante de sessão (`sessionStorage` + `localStorage`) com restauração no boot.
+- Backend `api()` com erro explícito `token_missing` para rotas privadas sem token.
+- Enriquecimento automático de payload mutante com `tenant_id`/`consultor_id` do contexto para evitar dados órfãos.

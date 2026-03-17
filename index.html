@@ -2228,6 +2228,22 @@ createApp({
       return err;
     });
 
+    function apiCall(modulo, acao, dados = {}, options = {}) {
+      const isPublic = !!options.public;
+      const token = options.token !== undefined ? options.token : sessionToken.value;
+      if (!isPublic && !normalizeIdSafe(token)) {
+        return Promise.reject(new Error('Acesso negado: Token de sessão ausente.'));
+      }
+      return gasClient.api(
+        { modulo: modulo, acao: acao, token: token, dados: dados },
+        { retries: options.retries !== undefined ? options.retries : 1, timeoutMs: options.timeoutMs || 20000, silent: !!options.silent }
+      ).then(function(res) {
+        if (!res) throw new Error('Resposta vazia da API.');
+        if (res.sucesso === false) throw new Error(res.erro || 'Falha na API.');
+        return res;
+      });
+    }
+
     function notify(msg, tipo) {
       const id = String(Date.now()) + '_' + String(Math.random()).slice(2, 8);
       toasts.value.push({ id: id, msg: msg, tipo: tipo || 'info' });
@@ -2282,7 +2298,7 @@ createApp({
     function refreshDashboard(token, silent) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
-      return gasClient.api({ modulo: 'dashboard', acao: 'kpis', token: t }, { retries: 1, silent: !!silent })
+      return apiCall('dashboard', 'kpis', {}, { token: t, retries: 1, silent: !!silent })
         .then(function(kpiRes) {
           if (kpiRes && kpiRes.sucesso && kpiRes.kpis) {
             financeiro.value = {
@@ -2319,7 +2335,7 @@ createApp({
     function refreshClientes(token, silent) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
-      return gasClient.api({ modulo: 'clientes', acao: 'listar', token: t, dados: { page: 1, pageSize: LIST_PAGE_SIZE } }, { retries: 0, silent: !!silent })
+      return apiCall('clientes', 'listar', { page: 1, pageSize: LIST_PAGE_SIZE }, { token: t, retries: 1, silent: !!silent })
         .then(function(res) {
           if (!res) throw new Error('Resposta vazia ao listar clientes.');
           if (res.sucesso === false) throw new Error(res.erro || 'Falha ao listar clientes.');
@@ -2346,10 +2362,10 @@ createApp({
       console.log('[refreshTarefas] token?', !!t, 'clienteFiltro=', filtroCliente.value);
       const payload = { modulo: 'tarefas', acao: 'listar', token: t, dados: { page: 1, pageSize: LIST_PAGE_SIZE } };
       const opts = { retries: 0, silent: !!silent };
-      return gasClient.api(payload, opts)
+      return apiCall(payload.modulo, payload.acao, payload.dados, { token: payload.token, retries: opts.retries, silent: opts.silent })
         .then(function(res) {
           if (!res) {
-            return gasClient.api(payload, { retries: 1, silent: !!silent });
+            return apiCall(payload.modulo, payload.acao, payload.dados, { token: payload.token, retries: 1, silent: !!silent });
           }
           return res;
         })
@@ -2374,7 +2390,7 @@ createApp({
     function refreshDiagnosticos(token, silent) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
-      return gasClient.api({ modulo: 'diagnosticos', acao: 'listar', token: t, dados: {} }, { retries: 0, silent: !!silent })
+      return apiCall('diagnosticos', 'listar', {}, { token: t, retries: 1, silent: !!silent })
         .then(function(res) {
           if (!res) throw new Error('Resposta vazia ao listar diagnósticos.');
           if (res.sucesso === false) throw new Error(res.erro || 'Falha ao listar diagnósticos.');
@@ -2393,7 +2409,7 @@ createApp({
     function refreshFinanceiro(token, silent) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
-      return gasClient.api({ modulo: 'financeiro', acao: 'listar', token: t, dados: {} }, { retries: 0, silent: !!silent })
+      return apiCall('financeiro', 'listar', {}, { token: t, retries: 1, silent: !!silent })
         .then(function(res) {
           if (!res) throw new Error('Resposta vazia ao listar financeiro.');
           if (res.sucesso === false) throw new Error(res.erro || 'Falha ao listar financeiro.');
@@ -2456,7 +2472,7 @@ createApp({
       loading.value = true;
       loginError.value = '';
       try {
-        const res = await gasClient.api({ modulo: 'auth', acao: 'solicitarReset', dados: { email: resetEmail.value } }, { retries: 0, timeoutMs: 20000 });
+        const res = await apiCall('auth', 'solicitarReset', { email: resetEmail.value }, { retries: 0, timeoutMs: 20000, public: true });
         if (!res || !res.sucesso) {
           loginError.value = (res && res.erro) || 'Não foi possível enviar o código de recuperação.';
           return;
@@ -2482,7 +2498,7 @@ createApp({
       loading.value = true;
       loginError.value = '';
       try {
-        const res = await gasClient.api({ modulo: 'auth', acao: 'redefinirSenha', dados: { token: resetToken.value, novaSenha: resetPass.value } }, { retries: 0, timeoutMs: 20000 });
+        const res = await apiCall('auth', 'redefinirSenha', { token: resetToken.value, novaSenha: resetPass.value }, { retries: 0, timeoutMs: 20000, public: true });
         if (!res || !res.sucesso) {
           loginError.value = (res && res.erro) || 'Não foi possível redefinir a senha.';
           return;
@@ -2520,6 +2536,7 @@ createApp({
 
         sessionToken.value = res.token || '';
         try { sessionStorage.setItem('sae_token', sessionToken.value); } catch (err) {}
+        try { localStorage.setItem('sae_token', sessionToken.value); } catch (err) {}
         if (res.consultor) {
           authContext.value = {
             tenant_id: res.consultor.tenant_id || '',
@@ -2536,7 +2553,7 @@ createApp({
         setAuthState('authenticated');
         await carregarDadosIniciais();
 
-        const authCheck = await gasClient.api({ modulo: 'auth', acao: 'verificar', token: sessionToken.value }, { retries: 0, timeoutMs: 15000, silent: true });
+        const authCheck = await apiCall('auth', 'verificar', {}, { token: sessionToken.value, retries: 0, timeoutMs: 15000, silent: true, public: true });
         if (!authCheck || authCheck.sucesso === false || !authCheck.consultor_id) {
           throw new Error((authCheck && authCheck.erro) || 'Sessão inválida');
         }
@@ -2579,6 +2596,7 @@ createApp({
 
         sessionToken.value = res.token || '';
         try { sessionStorage.setItem('sae_token', sessionToken.value); } catch (err) {}
+        try { localStorage.setItem('sae_token', sessionToken.value); } catch (err) {}
         authContext.value = {
           tenant_id: (res.consultor && res.consultor.tenant_id) || '',
           perfil: (res.consultor && res.consultor.perfil) || 'owner'
@@ -2593,7 +2611,7 @@ createApp({
         setAuthState('authenticated');
         await carregarDadosIniciais();
 
-        const authCheck = await gasClient.api({ modulo: 'auth', acao: 'verificar', token: sessionToken.value }, { retries: 0, timeoutMs: 15000, silent: true });
+        const authCheck = await apiCall('auth', 'verificar', {}, { token: sessionToken.value, retries: 0, timeoutMs: 15000, silent: true, public: true });
         if (!authCheck || authCheck.sucesso === false || !authCheck.consultor_id) {
           throw new Error((authCheck && authCheck.erro) || 'Sessão inválida');
         }
@@ -2610,7 +2628,9 @@ createApp({
 
     function doLogout() {
       sessionInvalidHandled.value = false;
-      try { sessionStorage.removeItem('sae_token'); } catch (err) {}
+      try { sessionStorage.removeItem('sae_token');
+          localStorage.removeItem('sae_token'); } catch (err) {}
+      try { localStorage.removeItem('sae_token'); } catch (err) {}
       sessionToken.value = '';
       clientes.value = [];
       tarefas.value = [];
@@ -2683,7 +2703,7 @@ createApp({
       if (!cliente || !cliente.uuid) return;
       if (!confirm('Deseja inativar este cliente?')) return;
       loading.value = true;
-      gasClient.api({ modulo: 'clientes', acao: 'salvar', token: sessionToken.value, dados: { uuid: cliente.uuid, status: 'inactive' } }, { retries: 0 })
+      apiCall('clientes', 'salvar', { uuid: cliente.uuid, status: 'inactive' }, { retries: 0 })
         .then(function(res) {
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao inativar cliente');
           return Promise.all([
@@ -2701,7 +2721,7 @@ createApp({
     function salvarCliente() {
       const isUpdate = !!form.value.uuid;
       loading.value = true;
-      gasClient.api({ modulo: 'clientes', acao: 'salvar', token: sessionToken.value, dados: form.value }, { retries: 0 })
+      apiCall('clientes', 'salvar', form.value, { retries: 0 })
         .then(function(res) {
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao salvar cliente');
           form.value = { empresa_nome:'', segmento:'Tecnologia', status:'active', responsavel:'', mensalidade:'', obs:'' };
@@ -2725,7 +2745,7 @@ createApp({
       formTarefa.value.cliente_id = normalizeIdSafe(formTarefa.value.cliente_id);
 
       loading.value = true;
-      gasClient.api({ modulo: 'tarefas', acao: 'salvar', token: sessionToken.value, dados: formTarefa.value }, { retries: 0 })
+      apiCall('tarefas', 'salvar', formTarefa.value, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao salvar tarefa');
 
@@ -2760,7 +2780,7 @@ createApp({
     function atualizarTarefa() {
       if (!tarefaSelecionada.value) return;
       loading.value = true;
-      gasClient.api({ modulo: 'tarefas', acao: 'salvar', token: sessionToken.value, dados: tarefaSelecionada.value }, { retries: 0 })
+      apiCall('tarefas', 'salvar', tarefaSelecionada.value, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao atualizar tarefa');
 
@@ -2792,7 +2812,7 @@ createApp({
     function excluirTarefa(t) {
       if (!t || !t.uuid) return;
       loading.value = true;
-      gasClient.api({ modulo: 'tarefas', acao: 'salvar', token: sessionToken.value, dados: { uuid: t.uuid, status: 'deleted' } }, { retries: 0 })
+      apiCall('tarefas', 'salvar', { uuid: t.uuid, status: 'deleted' }, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao excluir tarefa');
 
@@ -2831,7 +2851,7 @@ createApp({
       loading.value = true;
       const respostas = {};
       questionario5S.value.forEach(function(q, i){ respostas['q' + (i+1)] = Number(q.resposta || 0); });
-      gasClient.api({ modulo: 'diagnosticos', acao: 'salvar', token: sessionToken.value, dados: { cliente_id: clienteDiagId, tipo_matriz: formDiag.value.tipo, respostas: respostas } }, { retries: 0 })
+      apiCall('diagnosticos', 'salvar', { cliente_id: clienteDiagId, tipo_matriz: formDiag.value.tipo, respostas: respostas }, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao salvar diagnóstico');
           closeModal();
@@ -2854,7 +2874,7 @@ createApp({
     function marcarPago(p) {
       if (!p || !p.uuid) return;
       loading.value = true;
-      gasClient.api({ modulo: 'financeiro', acao: 'registrar', token: sessionToken.value, dados: { uuid: p.uuid, metodo: 'manual' } }, { retries: 0 })
+      apiCall('financeiro', 'registrar', { uuid: p.uuid, metodo: 'manual' }, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao confirmar pagamento');
           return Promise.all([
@@ -2876,7 +2896,7 @@ createApp({
       const c = clientes.value.find(function(x){ return x.uuid === portalClienteId.value; });
       clienteSelecionado.value = c || null;
       loading.value = true;
-      gasClient.api({ modulo: 'portal', acao: 'link', token: sessionToken.value, dados: { cliente_id: portalClienteId.value } }, { retries: 0 })
+      apiCall('portal', 'link', { cliente_id: portalClienteId.value }, { retries: 0 })
         .then(function(res) {
           if (!res || !res.sucesso || !res.url) throw new Error((res && res.erro) || 'Falha ao gerar link do portal');
           linkPortal.value = res.url;
@@ -2920,7 +2940,7 @@ createApp({
         return;
       }
       loading.value = true;
-      gasClient.api({ modulo: 'relatorios', acao: 'gerar', token: sessionToken.value, dados: { cliente_id: clienteSelecionado.value.uuid, tipo: 'executivo' } }, { retries: 0 })
+      apiCall('relatorios', 'gerar', { cliente_id: clienteSelecionado.value.uuid, tipo: 'executivo' }, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao gerar relatório');
           if (res.base64_pdf) {
@@ -2955,7 +2975,7 @@ createApp({
         return;
       }
       loading.value = true;
-      gasClient.api({ modulo: 'relatorios', acao: 'gerar', token: sessionToken.value, dados: { cliente_id: clienteSelecionado.value.uuid, tipo: r.id } }, { retries: 0 })
+      apiCall('relatorios', 'gerar', { cliente_id: clienteSelecionado.value.uuid, tipo: r.id }, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao gerar relatório ' + r.nome);
           if (res.base64_pdf) {
@@ -3042,7 +3062,7 @@ createApp({
       }
 
       try {
-        const res = await gasClient.api({ modulo: 'setup', acao: 'validarSchema' }, { retries: 0, cacheKey: 'setup.validarSchema', cacheTtlMs: 15000 });
+        const res = await apiCall('setup', 'validarSchema', {}, { retries: 0, public: true, silent: true });
         if (!res || !res.sucesso || !res.dados || !res.dados.ok) {
           showSetupAction.value = true;
           const detalhes = (res && res.dados && res.dados.detalhes && res.dados.detalhes.length) ? ' Pendências: ' + res.dados.detalhes.map(function(d){ return d.aba + ' (' + d.status + ')'; }).join(', ') : '';
@@ -3055,10 +3075,10 @@ createApp({
       }
 
       try {
-        const savedToken = sessionStorage.getItem('sae_token');
+        const savedToken = sessionStorage.getItem('sae_token') || localStorage.getItem('sae_token');
         if (savedToken) {
           sessionToken.value = savedToken;
-          const authRes = await gasClient.api({ modulo: 'auth', acao: 'verificar', token: savedToken }, { retries: 0, timeoutMs: 15000 });
+          const authRes = await apiCall('auth', 'verificar', {}, { token: savedToken, retries: 0, timeoutMs: 15000, public: true, silent: true });
           if (authRes && authRes.sucesso && authRes.consultor_id) {
             authContext.value = { tenant_id: authRes.tenant_id || '', perfil: authRes.perfil || 'viewer' };
             await refreshAdminConsole();
@@ -3069,6 +3089,7 @@ createApp({
             return;
           }
           sessionStorage.removeItem('sae_token');
+          localStorage.removeItem('sae_token');
         }
       } catch (err) {
         console.error('[boot auth restore]', err);

@@ -2229,6 +2229,21 @@ function obterTenantStatus(contexto) {
   return registros && registros[0] ? String(registros[0].status || 'active').toLowerCase() : null;
 }
 
+function shouldEnforceTenantPayload(modulo, acao) {
+  const m = String(modulo || '');
+  const a = String(acao || '');
+  if (['clientes', 'tarefas', 'diagnosticos', 'financeiro'].indexOf(m) < 0) return false;
+  return ['salvar', 'registrar', 'mover', 'excluir'].some(function(k) { return a.indexOf(k) >= 0; });
+}
+
+function aplicarContextoTenantNoPayload(payload, contexto) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !contexto) return payload;
+  const p = Object.assign({}, payload);
+  if (!normalizeIdSafe(p.tenant_id)) p.tenant_id = normalizeIdSafe(contexto.tenant_id || '');
+  if (!normalizeIdSafe(p.consultor_id)) p.consultor_id = normalizeIdSafe(contexto.consultor_id || '');
+  return p;
+}
+
 function observabilidadeStatus(token, opts = {}) {
   const contexto = obterContextoSessao(token);
   if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
@@ -2277,72 +2292,73 @@ function observabilidadeStatus(token, opts = {}) {
  */
 function api(params) {
   const { modulo, acao, token, dados, api_version } = params || {};
+  let dadosReq = dados;
   const versaoApi = String(api_version || 'v1').toLowerCase();
   const requestId = gerarRequestId();
   const startedAt = Date.now();
 
   const roteamento = {
     auth: {
-      login: () => autenticarConsultor(dados),
-      cadastro: () => cadastrarConsultor(dados),
-      solicitarReset: () => solicitarResetSenha(dados),
-      redefinirSenha: () => redefinirSenha(dados),
+      login: () => autenticarConsultor(dadosReq),
+      cadastro: () => cadastrarConsultor(dadosReq),
+      solicitarReset: () => solicitarResetSenha(dadosReq),
+      redefinirSenha: () => redefinirSenha(dadosReq),
       verificar: () => { const ctx = obterContextoSessao(token); return { sucesso: !!ctx, consultor_id: ctx && ctx.consultor_id, tenant_id: ctx && ctx.tenant_id, perfil: ctx && ctx.perfil }; },
     },
     clientes: {
       listar: () => listarClientes(token, dados || {}),
-      salvar: () => salvarCliente(token, dados),
-      excluir: () => excluirCliente(token, dados.uuid),
+      salvar: () => salvarCliente(token, dadosReq),
+      excluir: () => excluirCliente(token, dadosReq && dadosReq.uuid),
     },
     diagnosticos: {
-      listar: () => listarDiagnosticos(token, dados?.cliente_id),
-      salvar: () => salvarDiagnostico(token, dados),
+      listar: () => listarDiagnosticos(token, dadosReq?.cliente_id),
+      salvar: () => salvarDiagnostico(token, dadosReq),
     },
     tarefas: {
-      listar: () => listarTarefas(token, dados?.cliente_id, dados || {}),
-      salvar: () => salvarTarefa(token, dados),
-      mover:  () => moverTarefa(token, dados.uuid, dados.status),
-      evidencia: () => adicionarEvidencia(token, dados.uuid, dados.evidencia),
+      listar: () => listarTarefas(token, dadosReq?.cliente_id, dadosReq || {}),
+      salvar: () => salvarTarefa(token, dadosReq),
+      mover:  () => moverTarefa(token, dadosReq && dadosReq.uuid, dadosReq && dadosReq.status),
+      evidencia: () => adicionarEvidencia(token, dadosReq && dadosReq.uuid, dadosReq && dadosReq.evidencia),
     },
     financeiro: {
-      listar: () => listarFinanceiro(token, dados?.cliente_id),
-      registrar: () => registrarMensalidade(token, dados),
+      listar: () => listarFinanceiro(token, dadosReq?.cliente_id),
+      registrar: () => registrarMensalidade(token, dadosReq),
     },
     dashboard: {
       kpis: () => getDashboardKPIs(token),
     },
     relatorios: {
-      gerar: () => gerarRelatorio(token, dados.cliente_id, dados.tipo),
+      gerar: () => gerarRelatorio(token, dadosReq && dadosReq.cliente_id, dadosReq && dadosReq.tipo),
     },
     portal: {
-      link: () => gerarLinkPortalCliente(token, dados && dados.cliente_id),
+      link: () => gerarLinkPortalCliente(token, dadosReq && dadosReq.cliente_id),
     },
     setup: {
       executar: () => setupSpreadsheet(),
       validarSchema: () => sucesso(validarSchemaAbas()),
-      sanearTarefas: () => sanearTarefas5w2h(dados || {}),
-      normalizarSessoes: () => normalizarAbaSessoes(dados || {}),
+      sanearTarefas: () => sanearTarefas5w2h(dadosReq || {}),
+      normalizarSessoes: () => normalizarAbaSessoes(dadosReq || {}),
     },
     admin: {
       'tenant.obter': () => adminObterTenant(token),
-      'tenant.atualizar': () => adminAtualizarTenant(token, dados || {}),
-      'usuarios.listar': () => adminListarUsuarios(token, dados || {}),
+      'tenant.atualizar': () => adminAtualizarTenant(token, dadosReq || {}),
+      'usuarios.listar': () => adminListarUsuarios(token, dadosReq || {}),
       'piloto.status': () => adminPilotoStatus(token),
       'piloto.inscrever': () => adminPilotoInscrever(token),
       'piloto.remover': () => adminPilotoRemover(token),
       tenantObter: () => adminObterTenant(token),
-      usuariosListar: () => adminListarUsuarios(token, dados || {})
+      usuariosListar: () => adminListarUsuarios(token, dadosReq || {})
     },
     billing: {
       'assinatura.obter': () => billingAssinaturaObter(token),
-      'assinatura.alterarPlano': () => billingAssinaturaAlterarPlano(token, dados || {}),
+      'assinatura.alterarPlano': () => billingAssinaturaAlterarPlano(token, dadosReq || {}),
       'assinatura.status': () => billingAssinaturaStatus(token)
     },
     auditoria: {
-      listar: () => auditoriaListar(token, dados || {})
+      listar: () => auditoriaListar(token, dadosReq || {})
     },
     observabilidade: {
-      status: () => observabilidadeStatus(token, dados || {})
+      status: () => observabilidadeStatus(token, dadosReq || {})
     }
   };
 
@@ -2355,6 +2371,8 @@ function api(params) {
     const publico = !!(acoesPublicas[modulo] && acoesPublicas[modulo][acao]);
     let contexto = null;
     if (!publico) {
+      if (!normalizeIdSafe(token)) return falhaCodigo('token_missing', 'Acesso negado: Token de sessão ausente.', { request_id: requestId });
+
       contexto = obterContextoSessao(token);
       if (!contexto || !contexto.consultor_id) return falhaCodigo('session_invalid', 'Sessão inválida', { request_id: requestId });
       if (!temPermissao(contexto.perfil, modulo, acao)) {
@@ -2368,6 +2386,13 @@ function api(params) {
       const restricaoPiloto = validarAcessoPilotoEnterprise(contexto, modulo, acao);
       if (restricaoPiloto) {
         return falhaCodigo(restricaoPiloto.codigo, restricaoPiloto.erro, Object.assign({ request_id: requestId }, restricaoPiloto.extras || {}));
+      }
+
+      if (shouldEnforceTenantPayload(modulo, acao)) {
+        dadosReq = aplicarContextoTenantNoPayload(dadosReq, contexto);
+        if (!dadosReq || !normalizeIdSafe(dadosReq.tenant_id)) {
+          return falhaCodigo('tenant_required', 'Tenant obrigatório para operação.', { request_id: requestId });
+        }
       }
     }
 
@@ -2408,7 +2433,7 @@ function api(params) {
           sucesso: resposta && resposta.sucesso === true,
           codigo: (resposta && resposta.codigo) || '',
           mensagem: (resposta && resposta.erro) || 'ok',
-          payload: dados || {}
+          payload: dadosReq || {}
         });
       }
     }
@@ -2441,6 +2466,9 @@ function runApiContractTests() {
 
   const unknown = api({ modulo: 'x', acao: 'y' });
   expect(unknown.sucesso === false && !!unknown.erro && unknown.codigo === 'route_not_found', 'rota_invalida', JSON.stringify(unknown));
+
+  const missingToken = api({ modulo: 'clientes', acao: 'listar', token: '', dados: {} });
+  expect(missingToken && missingToken.sucesso === false && missingToken.codigo === 'token_missing', 'token_ausente_retorna_codigo', JSON.stringify(missingToken));
 
   const authMissing = api({ modulo: 'auth', acao: 'login', dados: {} });
   expect(authMissing.sucesso === false && /Campos obrigatórios/.test(authMissing.erro || ''), 'auth_login_payload_obrigatorio', JSON.stringify(authMissing));
