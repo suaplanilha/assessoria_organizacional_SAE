@@ -436,10 +436,18 @@ function doPost(e) {
  * Cria todas as abas do banco de dados com os headers corretos.
  * Execute via: Executar → setupSpreadsheet
  */
-function setupSpreadsheet() {
+function setupSpreadsheet(opts = {}) {
   const ss = getSpreadsheet();
 
   const SHEETS = SHEET_SCHEMAS;
+  const resetTotal = toBooleanSafe(opts && opts.reset_total);
+
+  if (resetTotal) {
+    Object.keys(SHEETS).forEach(function(nomeAba) {
+      const sh = ss.getSheetByName(nomeAba);
+      if (sh) ss.deleteSheet(sh);
+    });
+  }
 
   const existentes = ss.getSheets().map(s => s.getName());
 
@@ -500,6 +508,10 @@ function setupSpreadsheet() {
 
   Logger.log('Setup concluído! Spreadsheet ID: ' + ss.getId());
   return sucesso({ status: 'ok', message: 'Setup completo', spreadsheetId: ss.getId(), schemaVersion: SCHEMA_VERSION });
+}
+
+function resetEstruturalSpreadsheet() {
+  return setupSpreadsheet({ reset_total: true });
 }
 
 // ============================================================
@@ -1034,12 +1046,13 @@ function verificarSessao(token) {
  * @param {Sheet} sheet
  * @param {Object} filtros - ex: { consultor_id: 'uuid-...' }
  */
-function sheetParaObjetos(sheet, filtros = {}) {
+function sheetParaObjetos(sheet, filtros = {}, opts = {}) {
   const snapshot = getSheetSnapshot(sheet);
   if (snapshot.rows.length === 0) return [];
 
   const headers = snapshot.headers;
   const rows = snapshot.rows;
+  const chavePrimaria = String((opts && opts.primaryKey) || '').trim() || (headers.includes('uuid') ? 'uuid' : (headers.includes('tenant_id') ? 'tenant_id' : (headers.includes('token') ? 'token' : headers[0])));
 
   return rows
     .map(row => {
@@ -1048,11 +1061,10 @@ function sheetParaObjetos(sheet, filtros = {}) {
       return obj;
     })
     .filter(obj => {
-      // Filtra por critérios (multi-tenant)
       for (const [k, v] of Object.entries(filtros)) {
         if (obj[k] !== v) return false;
       }
-      return obj.uuid; // ignora linhas vazias
+      return normalizeIdSafe(obj[chavePrimaria]) || toBooleanSafe(obj.ativo) || String(obj.nome || '').trim();
     });
 }
 
@@ -2337,6 +2349,7 @@ function api(params) {
     },
     setup: {
       executar: () => setupSpreadsheet(),
+      resetEstrutural: () => resetEstruturalSpreadsheet(),
       validarSchema: () => sucesso(validarSchemaAbas()),
       sanearTarefas: () => sanearTarefas5w2h(dadosReq || {}),
       normalizarSessoes: () => normalizarAbaSessoes(dadosReq || {}),

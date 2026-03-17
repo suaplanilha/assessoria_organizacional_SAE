@@ -152,3 +152,9 @@ Restabelecer operação estável de sessão e gestão de clientes sem necessidad
 - Persistência redundante de sessão (`sessionStorage` + `localStorage`) com restauração no boot.
 - Backend `api()` com erro explícito `token_missing` para rotas privadas sem token.
 - Enriquecimento automático de payload mutante com `tenant_id`/`consultor_id` do contexto para evitar dados órfãos.
+
+
+## Reset estrutural controlado (aceito para incidentes graves)
+- Estratégia validada: reset manual da planilha com reconstrução canônica para eliminar drift histórico de colunas.
+- Suporte técnico adicionado no backend: `resetEstruturalSpreadsheet()` e rota `setup.resetEstrutural`.
+- Objetivo: reduzir impacto de migrações incrementais em bases já corrompidas por ordem de header.

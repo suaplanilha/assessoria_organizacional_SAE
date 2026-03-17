@@ -268,3 +268,10 @@ Runbook operacional/compliance: `TASK_02_RUNBOOK_OBSERVABILIDADE_COMPLIANCE.md`.
 Pilot rollout controlado: `TASK_03_PILOTO_CONTROLADO_ENTERPRISE.md`.
 
 Task de correções QA: `TASK_04_CORRECOES_FLUXO_SESSAO_CLIENTES.md`.
+
+
+### Reset estrutural (ambiente do zero)
+Quando houver drift severo de colunas/headers nas abas, execute:
+1. `resetEstruturalSpreadsheet()` (apaga abas gerenciadas e recria estrutura canônica).
+2. `setupSpreadsheet()` (idempotente para validar schema).
+3. Novo cadastro/login para repovoar dados do tenant.
