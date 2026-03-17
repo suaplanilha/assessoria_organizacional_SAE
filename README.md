@@ -269,6 +269,8 @@ Pilot rollout controlado: `TASK_03_PILOTO_CONTROLADO_ENTERPRISE.md`.
 
 Task de correções QA: `TASK_04_CORRECOES_FLUXO_SESSAO_CLIENTES.md`.
 
+Plano faseado por abas (front + back + schema): `TASK_05_PLANO_FASEADO_ABAS_FRONT_BACK_SCHEMA.md`.
+
 
 ### Reset estrutural (ambiente do zero)
 Quando houver drift severo de colunas/headers nas abas, execute:
