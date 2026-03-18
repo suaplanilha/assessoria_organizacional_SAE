@@ -537,10 +537,37 @@ function doGet(e) {
  * POST — Endpoint alternativo (não necessário com google.script.run)
  */
 function doPost(e) {
-  const data = JSON.parse(e.postData.contents);
-  return ContentService.createTextOutput(
-    JSON.stringify({ status: 'ok', data: processarPost(data) })
-  ).setMimeType(ContentService.MimeType.JSON);
+  let payload = {};
+  try {
+    payload = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+  } catch (err) {
+    const requestId = gerarRequestId();
+    logEstruturado('http.post.invalid_json', { request_id: requestId, mensagem: err.message }, 'WARN');
+    return ContentService.createTextOutput(JSON.stringify({
+      sucesso: false,
+      codigo: 'invalid_json',
+      erro: 'Payload JSON inválido.',
+      request_id: requestId
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  const resposta = processarPost(payload || {});
+  return ContentService.createTextOutput(JSON.stringify(resposta || {})).setMimeType(ContentService.MimeType.JSON);
+}
+
+function processarPost(data = {}) {
+  const modulo = String(data.modulo || '').trim();
+  const acao = String(data.acao || '').trim();
+  const token = data.token || '';
+  const dados = (data.dados && typeof data.dados === 'object') ? data.dados : {};
+  const apiVersion = data.api_version || 'v1';
+  const requestId = data.request_id || data.client_request_id || '';
+
+  if (!modulo || !acao) {
+    return falhaCodigo('validation_error', 'Campos obrigatórios: modulo e acao.', { request_id: gerarRequestId() });
+  }
+
+  return api({ modulo: modulo, acao: acao, token: token, dados: dados, api_version: apiVersion, request_id: requestId });
 }
 
 // ============================================================
@@ -2084,7 +2111,7 @@ function gerarHTMLPortalCliente(dados) {
 /**
  * Gera relatório HTML otimizado para PDF
  * No frontend: google.script.run.gerarRelatorio(token, clienteId, tipo)
- * O retorno é uma URL de blob ou o HTML para impressão
+ * O retorno é payload para download local (base64/mimeType) ou HTML para impressão
  */
 function gerarRelatorio(token, clienteId, tipo, opts = {}) {
   const consultorId = verificarSessao(token);

@@ -1339,8 +1339,8 @@ tr:last-child td { border-bottom: none; }
             <div class="card" style="margin-top:14px;text-align:center;">
               <div style="font-size:20px;margin-bottom:10px;">📄</div>
               <div style="font-family:var(--font-head);font-size:15px;font-weight:700;margin-bottom:6px;">Relatório de Progresso</div>
-              <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Gerado via Google Apps Script HtmlService · PDF com resumo executivo</div>
-              <button class="btn btn-primary" @click="gerarRelatorio">📄 Gerar Relatório PDF</button>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Gerado no servidor e baixado localmente no navegador (sem gravação no Drive)</div>
+              <button class="btn btn-primary" @click="gerarRelatorio">📄 Gerar Relatório</button>
             </div>
           </div>
         </div>
@@ -1349,14 +1349,14 @@ tr:last-child td { border-bottom: none; }
         <div v-if="currentPage==='relatorios'">
           <div class="section-tag">📄 Documentos</div>
           <div class="page-title">Central de Relatórios</div>
-          <div class="page-sub">PDF automático via Google Apps Script HtmlService</div>
+          <div class="page-sub">Download local automático de relatório (sem Google Drive)</div>
 
           <div class="section-grid two-col">
             <div class="card" v-for="r in tiposRelatorio" :key="r.id" style="cursor:pointer;" @click="gerarRelatorioTipo(r)">
               <div style="font-size:28px;margin-bottom:10px;">{{ r.icon }}</div>
               <div style="font-family:var(--font-head);font-size:15px;font-weight:700;margin-bottom:6px;">{{ r.nome }}</div>
               <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">{{ r.desc }}</div>
-              <button class="btn btn-primary btn-sm">Gerar PDF</button>
+              <button class="btn btn-primary btn-sm">Gerar arquivo</button>
             </div>
           </div>
         </div>
@@ -2327,7 +2327,9 @@ createApp({
     function notifyOperationError(err, ctxLabel) {
       const parsed = classifyError(err);
       const prefix = parsed.tipo === 'tecnico' ? '[Erro técnico]' : '[Regra de negócio]';
-      notify(prefix + ' ' + (ctxLabel ? (ctxLabel + ': ') : '') + parsed.mensagem, parsed.tipo === 'tecnico' ? 'info' : 'error');
+      const rid = (err && err.api && (err.api.request_id || err.api.client_request_id)) || window.__lastRequestId || window.__lastClientRequestId || '';
+      const suffix = rid ? (' · protocolo: ' + rid) : '';
+      notify(prefix + ' ' + (ctxLabel ? (ctxLabel + ': ') : '') + parsed.mensagem + suffix, parsed.tipo === 'tecnico' ? 'info' : 'error');
     }
 
     function notify(msg, tipo) {
@@ -3166,7 +3168,7 @@ createApp({
           if (arquivoB64) {
             const ok = triggerPdfDownload(arquivoB64, res.nomeArquivo || res.file_name || 'relatorio_sae.pdf');
             if (ok) {
-              notify('Relatório PDF baixado com sucesso.', 'success');
+              notify('Relatório baixado com sucesso.', 'success');
             }
           } else if (res.html) {
             var win = window.open('', '_blank');
