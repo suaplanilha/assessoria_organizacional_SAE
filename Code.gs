@@ -3200,6 +3200,61 @@ function runUnitTestsCritical() {
   };
 }
 
+
+function runRegressionSuiteP1() {
+  const contract = runApiContractTests();
+  const unit = runUnitTestsCritical();
+  const smoke = runOperationalSmokeTests();
+
+  function findResultByName(res, nome) {
+    const arr = (res && (res.resultados || res.checks)) || [];
+    for (let i = 0; i < arr.length; i++) {
+      if (String(arr[i].nome || '') === nome) return arr[i];
+    }
+    return null;
+  }
+
+  const required = [
+    { suite: 'contract', nome: 'erro_operacional_com_codigo_e_request_id' },
+    { suite: 'contract', nome: 'relatorio_sem_url_drive_contrato' },
+    { suite: 'unit', nome: 'post_sem_modulo_acao_rejeitado' },
+    { suite: 'unit', nome: 'doPost_json_invalido_retorna_erro_estruturado' },
+    { suite: 'unit', nome: 'portal_token_expirado_rejeitado' },
+    { suite: 'unit', nome: 'setup_migration_guard_admin_only' },
+    { suite: 'unit', nome: 'filtro_multi_tenant_clientes' },
+    { suite: 'smoke', nome: 'relatorios.gerar.progresso' }
+  ];
+
+  const bySuite = { contract: contract, unit: unit, smoke: smoke };
+  const checks = required.map(function(req) {
+    const found = findResultByName(bySuite[req.suite], req.nome);
+    return {
+      suite: req.suite,
+      nome: req.nome,
+      ok: !!(found && found.ok === true),
+      detalhe: (found && found.detalhe) || ''
+    };
+  });
+
+  const aprovados = checks.filter(function(c) { return c.ok; }).length;
+  return {
+    sucesso: contract && contract.sucesso === true && unit && unit.sucesso === true && smoke && smoke.sucesso === true && aprovados === checks.length,
+    resumo: {
+      total_regras: checks.length,
+      aprovadas: aprovados,
+      reprovadas: checks.length - aprovados,
+      suites: {
+        contract: !!(contract && contract.sucesso === true),
+        unit: !!(unit && unit.sucesso === true),
+        smoke: !!(smoke && smoke.sucesso === true)
+      }
+    },
+    suites: { contract: contract, unit: unit, smoke: smoke },
+    checks: checks
+  };
+}
+
+
 // ============================================================
 // EXEMPLO DE USO NO FRONTEND (index.html / Vue.js)
 // ============================================================

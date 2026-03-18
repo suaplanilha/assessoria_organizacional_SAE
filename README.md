@@ -56,11 +56,25 @@
 - [ ] Executar `runApiContractTests()` e confirmar `sucesso: true`.
 - [ ] Executar `runUnitTestsCritical()` e confirmar `sucesso: true`.
 - [ ] Executar `runOperationalSmokeTests()` e confirmar `sucesso: true`.
+- [ ] Executar `runRegressionSuiteP1()` e confirmar `sucesso: true`.
 - [ ] Publicar nova versão do Web App.
 - [ ] Abrir a URL publicada e validar tela de login.
 - [ ] Realizar login e confirmar sessão ativa.
 - [ ] Acessar Dashboard e verificar ausência de erros no console.
 - [ ] Validar fluxo mínimo ponta-a-ponta: Cliente → Tarefa → Financeiro.
+
+### 🧪 Suíte mínima de regressão (P1)
+
+Execute no editor GAS:
+
+1. `runRegressionSuiteP1()`
+2. Confirmar `sucesso: true` e checagens-chave:
+   - `post_sem_modulo_acao_rejeitado`
+   - `doPost_json_invalido_retorna_erro_estruturado`
+   - `portal_token_expirado_rejeitado`
+   - `setup_migration_guard_admin_only`
+   - `filtro_multi_tenant_clientes`
+   - `relatorio_sem_url_drive_contrato`
 
 ### 🔎 Smoke test rápido (produção)
 
