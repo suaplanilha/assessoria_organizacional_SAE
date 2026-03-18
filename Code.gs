@@ -2790,6 +2790,11 @@ function api(params) {
       resposta = sucesso(raw || {});
     }
 
+    if (resposta && resposta.sucesso === false) {
+      if (!String(resposta.codigo || '').trim()) resposta.codigo = 'business_error';
+      if (!String(resposta.erro || '').trim()) resposta.erro = 'Falha na operação.';
+    }
+
     const acaoMutante = ['salvar', 'excluir', 'mover', 'registrar', 'alterarPlano', 'atualizar', 'executar'].some(function(k) { return String(acao || '').indexOf(k) >= 0; });
     const criticalAudit = shouldAuditCriticalAction(modulo, acao);
     if ((acaoMutante || modulo === 'admin' || modulo === 'billing' || criticalAudit) && (contexto || criticalAudit)) {
@@ -2842,6 +2847,7 @@ function runApiContractTests() {
 
   const missingToken = api({ modulo: 'clientes', acao: 'listar', token: '', dados: {} });
   expect(missingToken && missingToken.sucesso === false && missingToken.codigo === 'token_missing', 'token_ausente_retorna_codigo', JSON.stringify(missingToken));
+  expect(missingToken && !!missingToken.request_id && !!missingToken.codigo, 'erro_operacional_com_codigo_e_request_id', JSON.stringify(missingToken));
 
   const authMissing = api({ modulo: 'auth', acao: 'login', dados: {} });
   expect(authMissing.sucesso === false && /Campos obrigatórios/.test(authMissing.erro || ''), 'auth_login_payload_obrigatorio', JSON.stringify(authMissing));
