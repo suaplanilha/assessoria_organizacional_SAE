@@ -1339,8 +1339,8 @@ tr:last-child td { border-bottom: none; }
             <div class="card" style="margin-top:14px;text-align:center;">
               <div style="font-size:20px;margin-bottom:10px;">📄</div>
               <div style="font-family:var(--font-head);font-size:15px;font-weight:700;margin-bottom:6px;">Relatório de Progresso</div>
-              <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Gerado via Google Apps Script HtmlService · PDF com resumo executivo</div>
-              <button class="btn btn-primary" @click="gerarRelatorio">📄 Gerar Relatório PDF</button>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Gerado no servidor e baixado localmente no navegador (sem gravação no Drive)</div>
+              <button class="btn btn-primary" @click="gerarRelatorio">📄 Gerar Relatório</button>
             </div>
           </div>
         </div>
@@ -1349,14 +1349,14 @@ tr:last-child td { border-bottom: none; }
         <div v-if="currentPage==='relatorios'">
           <div class="section-tag">📄 Documentos</div>
           <div class="page-title">Central de Relatórios</div>
-          <div class="page-sub">PDF automático via Google Apps Script HtmlService</div>
+          <div class="page-sub">Download local automático de relatório (sem Google Drive)</div>
 
           <div class="section-grid two-col">
             <div class="card" v-for="r in tiposRelatorio" :key="r.id" style="cursor:pointer;" @click="gerarRelatorioTipo(r)">
               <div style="font-size:28px;margin-bottom:10px;">{{ r.icon }}</div>
               <div style="font-family:var(--font-head);font-size:15px;font-weight:700;margin-bottom:6px;">{{ r.nome }}</div>
               <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">{{ r.desc }}</div>
-              <button class="btn btn-primary btn-sm">Gerar PDF</button>
+              <button class="btn btn-primary btn-sm">Gerar arquivo</button>
             </div>
           </div>
         </div>
@@ -2266,14 +2266,23 @@ createApp({
       if (!res) return res;
       if (typeof res === 'object' && res.request_id) {
         window.__lastRequestId = res.request_id;
+        window.__lastClientRequestId = res.client_request_id || window.__lastClientRequestId || '';
       }
       return res;
     });
     gasClient.onError((err) => {
       const rid = window.__lastRequestId || 'n/a';
-      console.error('GAS RPC error:', err && err.message ? err.message : err, 'request_id=', rid);
+      const crid = window.__lastClientRequestId || 'n/a';
+      console.error('GAS RPC error:', err && err.message ? err.message : err, 'request_id=', rid, 'client_request_id=', crid);
       return err;
     });
+
+
+    function generateClientRequestId(prefix) {
+      const p = String(prefix || 'web').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'web';
+      const rand = Math.random().toString(36).slice(2, 10);
+      return p + '_' + Date.now().toString(36) + '_' + rand;
+    }
 
     function apiCall(modulo, acao, dados = {}, options = {}) {
       const isPublic = !!options.public;
@@ -2281,8 +2290,10 @@ createApp({
       if (!isPublic && !normalizeIdSafe(token)) {
         return Promise.reject(new Error('Acesso negado: Token de sessão ausente.'));
       }
+      const clientRequestId = options.requestId || generateClientRequestId(modulo + '_' + acao);
+      window.__lastClientRequestId = clientRequestId;
       return gasClient.api(
-        { modulo: modulo, acao: acao, token: token, dados: dados },
+        { modulo: modulo, acao: acao, token: token, dados: dados, request_id: clientRequestId },
         {
           retries: options.retries !== undefined ? options.retries : 1,
           timeoutMs: options.timeoutMs || 20000,
@@ -2313,10 +2324,20 @@ createApp({
       return { tipo: 'negocio', mensagem: msg || 'Não foi possível concluir a operação.' };
     }
 
-    function notifyOperationError(err, ctxLabel) {
+    function getOperationalProtocolId(err) {
+      return (err && err.api && (err.api.request_id || err.api.client_request_id)) || window.__lastRequestId || window.__lastClientRequestId || '';
+    }
+
+    function showOperationalError(err, ctxLabel) {
       const parsed = classifyError(err);
       const prefix = parsed.tipo === 'tecnico' ? '[Erro técnico]' : '[Regra de negócio]';
-      notify(prefix + ' ' + (ctxLabel ? (ctxLabel + ': ') : '') + parsed.mensagem, parsed.tipo === 'tecnico' ? 'info' : 'error');
+      const rid = getOperationalProtocolId(err);
+      const suffix = rid ? (' · protocolo: ' + rid) : '';
+      notify(prefix + ' ' + (ctxLabel ? (ctxLabel + ': ') : '') + parsed.mensagem + suffix, parsed.tipo === 'tecnico' ? 'info' : 'error');
+    }
+
+    function notifyOperationError(err, ctxLabel) {
+      return showOperationalError(err, ctxLabel);
     }
 
     function notify(msg, tipo) {
@@ -2344,7 +2365,9 @@ createApp({
       if (!isSessionInvalidError(err)) return false;
       if (sessionInvalidHandled.value) return true;
       sessionInvalidHandled.value = true;
-      notify('Sua sessão expirou ou ficou inconsistente. Faça login novamente.', 'error');
+      const rid = getOperationalProtocolId(err);
+      const suffix = rid ? (' · protocolo: ' + rid) : '';
+      notify('Sua sessão expirou ou ficou inconsistente. Faça login novamente.' + suffix, 'error');
       doLogout();
       return true;
     }
@@ -2617,7 +2640,7 @@ createApp({
             notify('[Regra de negócio] Perfil sem permissão para alterar plano.', 'error');
             return;
           }
-          notifyOperationError(err, 'alterar plano');
+          showOperationalError(err, 'alterar plano');
         })
         .finally(function() {
           loading.value = false;
@@ -2901,7 +2924,7 @@ createApp({
         })
         .then(function(){ notify('Cliente inativado com sucesso.', 'success'); })
         .catch(function(err){
-          if (!handleSessionInvalid(err)) notifyOperationError(err, 'inativar cliente');
+          if (!handleSessionInvalid(err)) showOperationalError(err, 'inativar cliente');
         })
         .finally(function(){ loading.value = false; });
     }
@@ -2922,7 +2945,7 @@ createApp({
           ]);
         })
         .then(function(){ notify(isUpdate ? 'Cliente atualizado com sucesso.' : 'Cliente salvo com sucesso.', 'success'); })
-        .catch(function(err){ if (!handleSessionInvalid(err)) notifyOperationError(err, isUpdate ? 'atualizar cliente' : 'salvar cliente'); })
+        .catch(function(err){ if (!handleSessionInvalid(err)) showOperationalError(err, isUpdate ? 'atualizar cliente' : 'salvar cliente'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -2964,7 +2987,7 @@ createApp({
           }
           notify('Tarefa salva com sucesso.', 'success');
         })
-        .catch(function(err){ notifyOperationError(err, 'salvar tarefa'); })
+        .catch(function(err){ showOperationalError(err, 'salvar tarefa'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -2998,7 +3021,7 @@ createApp({
           }
           notify('Tarefa atualizada com sucesso.', 'success');
         })
-        .catch(function(err){ notifyOperationError(err, 'atualizar tarefa'); })
+        .catch(function(err){ showOperationalError(err, 'atualizar tarefa'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3026,7 +3049,7 @@ createApp({
           }
           notify('Tarefa removida com sucesso.', 'success');
         })
-        .catch(function(err){ notifyOperationError(err, 'excluir tarefa'); })
+        .catch(function(err){ showOperationalError(err, 'excluir tarefa'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3058,7 +3081,7 @@ createApp({
           ]);
         })
         .then(function(){ setTimeout(initCharts, 200); notify('Diagnóstico salvo com sucesso.', 'success'); })
-        .catch(function(err){ notifyOperationError(err, 'salvar diagnóstico'); })
+        .catch(function(err){ showOperationalError(err, 'salvar diagnóstico'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3081,7 +3104,7 @@ createApp({
           ]);
         })
         .then(function(){ notify('Pagamento confirmado com sucesso.', 'success'); })
-        .catch(function(err){ notifyOperationError(err, 'confirmar pagamento'); })
+        .catch(function(err){ showOperationalError(err, 'confirmar pagamento'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3100,7 +3123,7 @@ createApp({
           linkPortal.value = res.url;
           notify('Link do portal gerado com sucesso.', 'success');
         })
-        .catch(function(err){ notifyOperationError(err, 'gerar link do portal'); })
+        .catch(function(err){ showOperationalError(err, 'gerar link do portal'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3132,6 +3155,16 @@ createApp({
       }
     }
 
+    function sanitizeReportHtml(html) {
+      const raw = String(html || '');
+      const semScript = raw
+        .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+        .replace(/\son\w+\s*=\s*(['\"]).*?\1/gi, '')
+        .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
+        .replace(/javascript:/gi, '');
+      return semScript;
+    }
+
     function gerarRelatorio() {
       if (!clienteSelecionado.value || !clienteSelecionado.value.uuid) {
         notify('Selecione um cliente para gerar o relatório.', 'info');
@@ -3141,21 +3174,16 @@ createApp({
       apiCall('relatorios', 'gerar', { cliente_id: clienteSelecionado.value.uuid, tipo: 'executivo' }, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao gerar relatório');
-          if (res.base64_pdf) {
-            const ok = triggerPdfDownload(res.base64_pdf, res.file_name || 'relatorio_sae.pdf');
+          const arquivoB64 = res.base64 || res.base64_pdf;
+          if (arquivoB64) {
+            const ok = triggerPdfDownload(arquivoB64, res.nomeArquivo || res.file_name || 'relatorio_sae.pdf');
             if (ok) {
-              notify('Relatório PDF baixado com sucesso.', 'success');
-            } else if (res.url) {
-              window.open(res.url, '_blank');
-              notify('Relatório gerado. Fallback por link de download.', 'info');
+              notify('Relatório baixado com sucesso.', 'success');
             }
-          } else if (res.url) {
-            window.open(res.url, '_blank');
-            notify('Relatório gerado e enviado para download.', 'success');
           } else if (res.html) {
             var win = window.open('', '_blank');
             if (win) {
-              win.document.write(res.html);
+              win.document.write(sanitizeReportHtml(res.html));
               win.document.close();
               notify('Relatório HTML aberto em nova aba.', 'info');
             } else {
@@ -3163,7 +3191,7 @@ createApp({
             }
           }
         })
-        .catch(function(err){ notifyOperationError(err, 'gerar relatório'); })
+        .catch(function(err){ showOperationalError(err, 'gerar relatório'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3176,25 +3204,30 @@ createApp({
       apiCall('relatorios', 'gerar', { cliente_id: clienteSelecionado.value.uuid, tipo: r.id }, { retries: 0 })
         .then(function(res){
           if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao gerar relatório ' + r.nome);
-          if (res.base64_pdf) {
-            triggerPdfDownload(res.base64_pdf, res.file_name || ('relatorio_' + r.id + '.pdf'));
-          } else if (res.url) {
-            window.open(res.url, '_blank');
+          const arquivoB64 = res.base64 || res.base64_pdf;
+          if (arquivoB64) {
+            triggerPdfDownload(arquivoB64, res.nomeArquivo || res.file_name || ('relatorio_' + r.id + '.pdf'));
+          } else if (res.html) {
+            var win = window.open('', '_blank');
+            if (win) {
+              win.document.write(sanitizeReportHtml(res.html));
+              win.document.close();
+            }
           }
           notify('Relatório "' + r.nome + '" gerado com sucesso.', 'success');
         })
-        .catch(function(err){ notifyOperationError(err, 'gerar relatório ' + (r && r.nome ? r.nome : '')); })
+        .catch(function(err){ showOperationalError(err, 'gerar relatório ' + (r && r.nome ? r.nome : '')); })
         .finally(function(){ loading.value = false; });
     }
 
     async function runSetup() {
       loading.value = true;
       try {
-        const res = await apiCall('setup', 'executar', {}, { retries: 0, timeoutMs: 30000, public: true });
+        const res = await apiCall('setup', 'executar', {}, { retries: 0, timeoutMs: 30000 });
         if (!res || !res.sucesso) {
           const err = new Error((res && res.erro) || 'Falha ao executar setup.');
           err.code = (res && res.codigo) || 'business_error';
-          notifyOperationError(err, 'executar setup');
+          showOperationalError(err, 'executar setup');
           return;
         }
         showSetupAction.value = false;
