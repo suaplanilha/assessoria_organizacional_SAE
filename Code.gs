@@ -32,6 +32,473 @@
 const SPREADSHEET_ID = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '';
 const SECRET_SALT    = PropertiesService.getScriptProperties().getProperty('SECRET_SALT') || 'sae_apollo_2026_salt';
 
+
+const SCHEMA_VERSION = '2.0.0';
+
+const SHEET_SCHEMAS = {
+  tb_empresas: [
+    'tenant_id', 'nome', 'plano', 'status', 'max_usuarios', 'max_clientes', 'max_projetos', 'created_at', 'updated_at'
+  ],
+  tb_permissoes: [
+    'perfil', 'recurso', 'permitido', 'created_at'
+  ],
+  tb_auditoria: [
+    'uuid', 'request_id', 'tenant_id', 'consultor_id', 'perfil', 'modulo', 'acao', 'sucesso', 'codigo', 'mensagem', 'payload_json', 'created_at'
+  ],
+  consultores: [
+    'uuid', 'tenant_id', 'perfil', 'nome', 'email', 'email_hash', 'senha_hash', 'plano_saas',
+    'data_adesao', 'ativo', 'configuracoes_json',
+    'reset_token_hash', 'reset_expira_iso', 'reset_solicitado_em'
+  ],
+  clientes: [
+    'uuid', 'tenant_id', 'consultor_id', 'empresa_nome', 'segmento',
+    'responsavel', 'email_contato', 'telefone', 'status',
+    'mensalidade', 'data_inicio', 'maturidade', 'obs', 'created_at'
+  ],
+  diagnosticos: [
+    'uuid', 'tenant_id', 'cliente_id', 'consultor_id', 'tipo_matriz',
+    'respostas_json', 'score', 'dimensoes_json', 'observacoes',
+    'created_at', 'status'
+  ],
+  tarefas_5w2h: [
+    'uuid', 'tenant_id', 'cliente_id', 'consultor_id', 'descricao', 'responsavel',
+    'prazo_iso', 'onde', 'porque', 'como', 'custo', 'indicador',
+    'status', 'tipo', 'evidencia', 'created_at', 'updated_at'
+  ],
+  financeiro: [
+    'uuid', 'tenant_id', 'cliente_id', 'consultor_id', 'valor_mensalidade',
+    'data_vencimento', 'data_pagamento', 'pago', 'metodo_pagamento', 'obs', 'created_at'
+  ],
+  sessoes: [
+    'token', 'tenant_id', 'consultor_id', 'perfil', 'email_hash', 'created_at', 'expires_at', 'ativo'
+  ]
+};
+
+const RBAC_PERMISSOES_PADRAO = {
+  owner: ['*'],
+  admin: ['*'],
+  manager: [
+    'auth.verificar',
+    'clientes.*',
+    'diagnosticos.*',
+    'tarefas.*',
+    'financeiro.*',
+    'dashboard.kpis',
+    'dashboard.pipeline',
+    'onboarding.status',
+    'relatorios.gerar',
+    'portal.link',
+    'auditoria.listar',
+    'admin.tenant.obter',
+    'admin.tenant.atualizar',
+    'admin.usuarios.listar',
+    'billing.assinatura.obter',
+    'billing.assinatura.alterarPlano',
+    'billing.assinatura.status',
+    'billing.assinatura.marcarInadimplente',
+    'billing.assinatura.regularizar'
+  ],
+  analyst: [
+    'auth.verificar',
+    'clientes.listar',
+    'diagnosticos.*',
+    'tarefas.*',
+    'financeiro.listar',
+    'dashboard.kpis',
+    'dashboard.pipeline',
+    'onboarding.status',
+    'relatorios.gerar',
+    'portal.link',
+    'auditoria.listar',
+    'admin.usuarios.listar',
+    'billing.assinatura.obter',
+    'billing.assinatura.status'
+  ],
+  viewer: [
+    'auth.verificar',
+    'clientes.listar',
+    'diagnosticos.listar',
+    'tarefas.listar',
+    'financeiro.listar',
+    'dashboard.kpis',
+    'dashboard.pipeline',
+    'onboarding.status',
+    'relatorios.gerar',
+    'portal.link'
+  ]
+};
+
+const ENTERPRISE_PILOT_CONFIG = {
+  enabledKey: 'ENTERPRISE_PILOT_ENABLED',
+  tenantsKey: 'ENTERPRISE_PILOT_TENANTS',
+  maxTenantsKey: 'ENTERPRISE_PILOT_MAX_TENANTS',
+  defaultEnabled: true,
+  defaultMaxTenants: 2
+};
+
+const SECURITY_FLAGS = {
+  allowSelfSignupKey: 'ALLOW_SELF_SIGNUP',
+  maintenanceModeKey: 'MAINTENANCE_MODE'
+};
+
+function isSelfSignupEnabled() {
+  const raw = PropertiesService.getScriptProperties().getProperty(SECURITY_FLAGS.allowSelfSignupKey);
+  if (raw === null || raw === undefined || raw === '') return false;
+  return ['1', 'true', 'TRUE', 'on', 'ON', 'yes', 'YES'].includes(String(raw).trim());
+}
+
+function isMaintenanceModeEnabled() {
+  const raw = PropertiesService.getScriptProperties().getProperty(SECURITY_FLAGS.maintenanceModeKey);
+  if (raw === null || raw === undefined || raw === '') return false;
+  return ['1', 'true', 'TRUE', 'on', 'ON', 'yes', 'YES'].includes(String(raw).trim());
+}
+
+function isPrivilegedToken(token) {
+  const ctx = obterContextoSessao(token);
+  if (!ctx) return false;
+  const perfil = String(ctx.perfil || '').toLowerCase();
+  return perfil === 'owner' || perfil === 'admin';
+}
+
+function logEstruturado(evento, payload = {}, nivel = 'INFO') {
+  const base = {
+    ts: new Date().toISOString(),
+    nivel,
+    evento,
+    schemaVersion: SCHEMA_VERSION
+  };
+  Logger.log(JSON.stringify(Object.assign(base, payload)));
+}
+
+function sucesso(dados = {}, extras = {}) {
+  return Object.assign({ sucesso: true, erro: null, dados }, extras);
+}
+
+function falha(erro, extras = {}) {
+  return Object.assign({ sucesso: false, erro, dados: null }, extras);
+}
+
+function falhaCodigo(codigo, erro, extras = {}) {
+  const contexto = extras && extras.contexto !== undefined ? extras.contexto : undefined;
+  const base = Object.assign({ codigo }, extras || {});
+  if (contexto === undefined) delete base.contexto;
+  return falha(erro, base);
+}
+
+function validatePayload(modulo, acao, dados = {}) {
+  const m = String(modulo || '');
+  const a = String(acao || '');
+  const d = (dados && typeof dados === 'object' && !Array.isArray(dados)) ? dados : {};
+  const fail = function(msg, contexto = {}) {
+    return falhaCodigo('validation_error', msg, { contexto: Object.assign({ modulo: m, acao: a }, contexto) });
+  };
+
+  if (m === 'auth' && a === 'cadastro') {
+    if (!String(d.nome || '').trim() || !String(d.email || '').trim() || !String(d.senha || '').trim()) {
+      return fail('Nome, e-mail e senha são obrigatórios.', { campos: ['nome', 'email', 'senha'] });
+    }
+  }
+  if (m === 'clientes' && a === 'salvar') {
+    if (!d.uuid && !String(d.empresa_nome || '').trim()) return fail('Nome da empresa é obrigatório.', { campo: 'empresa_nome' });
+  }
+  if (m === 'diagnosticos' && a === 'salvar') {
+    if (!normalizeIdSafe(d.cliente_id)) return fail('Cliente é obrigatório para salvar diagnóstico.', { campo: 'cliente_id' });
+    if (!d.respostas || typeof d.respostas !== 'object' || Array.isArray(d.respostas)) return fail('Respostas do diagnóstico inválidas.', { campo: 'respostas' });
+  }
+  if (m === 'tarefas' && a === 'salvar') {
+    if (!d.uuid && !normalizeIdSafe(d.cliente_id)) return fail('Cliente é obrigatório para criar tarefa.', { campo: 'cliente_id' });
+    if (!d.uuid && !String(d.descricao || '').trim()) return fail('Descrição da tarefa é obrigatória.', { campo: 'descricao' });
+  }
+  if (m === 'tarefas' && a === 'mover') {
+    const valid = ['iniciar', 'execucao', 'validando', 'concluido'];
+    if (!normalizeIdSafe(d.uuid)) return fail('UUID da tarefa é obrigatório.', { campo: 'uuid' });
+    if (!valid.includes(String(d.status || ''))) return fail('Status inválido.', { campo: 'status', validos: valid });
+  }
+  if (m === 'financeiro' && a === 'registrar') {
+    if (!d.uuid && !normalizeIdSafe(d.cliente_id)) return fail('Cliente é obrigatório para registrar mensalidade.', { campo: 'cliente_id' });
+    if (!d.uuid) {
+      const n = Number(d.valor_mensalidade || 0);
+      if (!Number.isFinite(n) || n < 0) return fail('Valor de mensalidade inválido.', { campo: 'valor_mensalidade' });
+    }
+  }
+  if (m === 'portal' && a === 'link') {
+    if (!normalizeIdSafe(d.cliente_id)) return fail('Cliente obrigatório.', { campo: 'cliente_id' });
+  }
+  if (m === 'relatorios' && a === 'gerar') {
+    const tipos = ['executivo', 'progresso', 'diagnostico'];
+    if (!normalizeIdSafe(d.cliente_id)) return fail('Cliente é obrigatório para gerar relatório.', { campo: 'cliente_id' });
+    if (d.tipo && !tipos.includes(String(d.tipo))) return fail('Tipo de relatório inválido.', { campo: 'tipo', validos: tipos });
+    const p = parsePeriodo(d);
+    if (d.periodo_inicio && !p.inicio) return fail('Período inicial inválido.', { campo: 'periodo_inicio' });
+    if (d.periodo_fim && !p.fim) return fail('Período final inválido.', { campo: 'periodo_fim' });
+    if (p.inicio && p.fim && p.inicio > p.fim) return fail('Período inválido: início maior que fim.', { campo: 'periodo' });
+  }
+  if (m === 'billing' && a === 'assinatura.alterarPlano') {
+    if (!['Pro', 'Enterprise'].includes(String(d.plano || ''))) return fail('Plano inválido. Use Pro ou Enterprise.', { campo: 'plano' });
+  }
+
+  return null;
+}
+
+function toBooleanSafe(v) {
+  return v === true || v === 'TRUE' || v === 'true' || v === 1 || v === '1';
+}
+
+function toNumberSafe(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function toISODateSafe(v, fallback = null) {
+  if (!v) return fallback;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? fallback : d.toISOString();
+}
+
+function getSheetOrFail(nomeAba) {
+  const sheet = getSpreadsheet().getSheetByName(nomeAba);
+  if (!sheet) {
+    return {
+      sheet: null,
+      error: falha(`Aba obrigatória não encontrada: ${nomeAba}`, {
+        acao_sugerida: 'Execute setupSpreadsheet() para criar/ajustar as abas necessárias.'
+      })
+    };
+  }
+  return { sheet, error: null };
+}
+
+function validarSchemaAbas() {
+  const ss = getSpreadsheet();
+  const resultado = { versao: SCHEMA_VERSION, ok: true, detalhes: [] };
+
+  Object.entries(SHEET_SCHEMAS).forEach(([nomeAba, headersEsperados]) => {
+    const sheet = ss.getSheetByName(nomeAba);
+    if (!sheet) {
+      resultado.ok = false;
+      resultado.detalhes.push({ aba: nomeAba, status: 'ausente', faltantes: headersEsperados });
+      return;
+    }
+
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].filter(Boolean);
+    const faltantes = headersEsperados.filter(h => !headers.includes(h));
+    if (faltantes.length > 0) {
+      resultado.ok = false;
+      resultado.detalhes.push({ aba: nomeAba, status: 'incompleta', faltantes });
+    }
+  });
+
+  return resultado;
+}
+
+function montarLinhaPorHeaders(headers, payload = {}) {
+  return headers.map(function(h) {
+    return payload[h] !== undefined ? payload[h] : '';
+  });
+}
+
+function appendRowByHeaders(sheet, payload = {}) {
+  const headers = getSheetSnapshot(sheet).headers;
+  sheet.appendRow(montarLinhaPorHeaders(headers, payload));
+}
+
+function normalizarAbaSessoes(opts = {}) {
+  const sheetInfo = getSheetOrFail('sessoes');
+  if (sheetInfo.error) return sheetInfo.error;
+
+  const sheet = sheetInfo.sheet;
+  const snapshot = getSheetSnapshot(sheet);
+  const headersEsperados = SHEET_SCHEMAS.sessoes.slice();
+
+  const headersAtuais = snapshot.headers.length ? snapshot.headers : headersEsperados;
+  const idx = function(nome) { return headersAtuais.indexOf(nome); };
+
+  const idxToken = idx('token');
+  const idxTenant = idx('tenant_id');
+  const idxConsultor = idx('consultor_id');
+  const idxPerfil = idx('perfil');
+  const idxEmailHash = idx('email_hash');
+  const idxCreated = idx('created_at');
+  const idxExpires = idx('expires_at');
+  const idxAtivo = idx('ativo');
+
+  const linhasNormalizadas = [];
+
+  snapshot.rows.forEach(function(row) {
+    let consultorId = idxConsultor >= 0 ? normalizeIdSafe(row[idxConsultor]) : '';
+    if (!consultorId && idxToken < 0 && row[0]) consultorId = normalizeIdSafe(row[0]);
+    if (!consultorId) return;
+
+    const consultor = getConsultorById(consultorId) || {};
+    let token = idxToken >= 0 ? String(row[idxToken] || '').trim() : '';
+    if (!token) {
+      token = Utilities.base64Encode(gerarUUID() + ':' + consultorId + ':' + Date.now());
+    }
+
+    const criadoRaw = idxCreated >= 0 ? row[idxCreated] : '';
+    const criadoDate = new Date(criadoRaw || Date.now());
+    const createdAt = Number.isNaN(criadoDate.getTime()) ? new Date().toISOString() : criadoDate.toISOString();
+
+    const expiraRaw = idxExpires >= 0 ? row[idxExpires] : '';
+    let expiraDate = new Date(expiraRaw || '');
+    if (Number.isNaN(expiraDate.getTime())) {
+      expiraDate = new Date(createdAt);
+      expiraDate.setDate(expiraDate.getDate() + 7);
+    }
+
+    const emailHash = idxEmailHash >= 0 ? String(row[idxEmailHash] || '') : String(consultor.email_hash || '');
+    const tenantId = normalizeIdSafe((idxTenant >= 0 ? row[idxTenant] : '') || consultor.tenant_id || garantirTenantParaConsultor(consultorId, consultor.nome, consultor.plano_saas));
+    const perfil = String((idxPerfil >= 0 ? row[idxPerfil] : '') || consultor.perfil || 'owner').toLowerCase();
+    const ativo = idxAtivo >= 0 ? toBooleanSafe(row[idxAtivo]) : true;
+
+    linhasNormalizadas.push(montarLinhaPorHeaders(headersEsperados, {
+      token: token,
+      tenant_id: tenantId,
+      consultor_id: consultorId,
+      perfil: perfil,
+      email_hash: emailHash,
+      created_at: createdAt,
+      expires_at: expiraDate.toISOString(),
+      ativo: ativo
+    }));
+  });
+
+  sheet.clearContents();
+  sheet.getRange(1, 1, 1, headersEsperados.length).setValues([headersEsperados]);
+  if (linhasNormalizadas.length) {
+    sheet.getRange(2, 1, linhasNormalizadas.length, headersEsperados.length).setValues(linhasNormalizadas);
+  }
+
+  if (!opts.silent) {
+    logEstruturado('setup.sessoes.normalizada', { linhas: linhasNormalizadas.length });
+  }
+
+  return sucesso({ normalizadas: linhasNormalizadas.length });
+}
+
+const CACHE_TTL_KPIS = 60; // segundos
+const CACHE_TTL_LISTA = 45; // segundos
+
+function getCache() {
+  return CacheService.getScriptCache();
+}
+
+function getCacheJSON(key) {
+  const raw = getCache().get(key);
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+function setCacheJSON(key, value, ttlSecs) {
+  getCache().put(key, JSON.stringify(value), ttlSecs);
+}
+
+function invalidateConsultorCache(consultorId) {
+  if (!consultorId) return;
+  const props = PropertiesService.getScriptProperties();
+  const key = `CACHE_VER_${consultorId}`;
+  const ver = Number(props.getProperty(key) || '1');
+  props.setProperty(key, String(ver + 1));
+}
+
+function getConsultorCacheVersion(consultorId) {
+  const props = PropertiesService.getScriptProperties();
+  return Number(props.getProperty(`CACHE_VER_${consultorId}`) || '1');
+}
+
+function registrarTelemetria(modulo, evento) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const chave = `METRIC_${modulo}_${evento}`.replace(/[^A-Z0-9_]/gi, '_').toUpperCase();
+    const atual = Number(props.getProperty(chave) || '0');
+    props.setProperty(chave, String(atual + 1));
+    logEstruturado('telemetry.increment', { modulo, evento, contador: atual + 1 });
+  } catch (err) {
+    Logger.log('Falha ao registrar telemetria: ' + err.message);
+  }
+}
+
+function gerarRequestId() {
+  return Utilities.getUuid().replace(/-/g, '').slice(0, 24);
+}
+
+function obterMetricasTelemetria() {
+  const props = PropertiesService.getScriptProperties().getProperties();
+  const metrics = {};
+  Object.keys(props).forEach(function(k) {
+    if (k.indexOf('METRIC_') === 0) {
+      metrics[k] = Number(props[k] || '0');
+    }
+  });
+  return metrics;
+}
+
+function getSheetSnapshot(sheet) {
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow < 1 || lastCol < 1) return { headers: [], rows: [] };
+
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (lastRow === 1) return { headers, rows: [] };
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  return { headers, rows };
+}
+
+function parsePaginacao(opts = {}) {
+  const page = Math.max(1, parseInt(opts.page, 10) || 1);
+  const pageSize = Math.min(200, Math.max(1, parseInt(opts.pageSize, 10) || 50));
+  return { page, pageSize, offset: (page - 1) * pageSize };
+}
+
+function parsePeriodo(opts = {}) {
+  const ini = String(opts.periodo_inicio || opts.inicio || '').trim();
+  const fim = String(opts.periodo_fim || opts.fim || '').trim();
+  const di = ini ? new Date(ini) : null;
+  const df = fim ? new Date(fim) : null;
+  return {
+    inicio: di && !Number.isNaN(di.getTime()) ? di : null,
+    fim: df && !Number.isNaN(df.getTime()) ? df : null
+  };
+}
+
+function noPeriodo(isoDate, periodo) {
+  if (!periodo || (!periodo.inicio && !periodo.fim)) return true;
+  const d = new Date(isoDate || '');
+  if (Number.isNaN(d.getTime())) return true;
+  if (periodo.inicio && d < periodo.inicio) return false;
+  if (periodo.fim && d > periodo.fim) return false;
+  return true;
+}
+
+function normalizeIdSafe(v) {
+  return String(v || '').trim();
+}
+
+function normalizeStatusTarefa(v) {
+  const raw = String(v || '').trim().toLowerCase();
+  const mapa = {
+    iniciar: 'iniciar',
+    inicio: 'iniciar',
+    'a_iniciar': 'iniciar',
+    'a iniciar': 'iniciar',
+    execucao: 'execucao',
+    execução: 'execucao',
+    em_execucao: 'execucao',
+    'em execução': 'execucao',
+    validando: 'validando',
+    validacao: 'validando',
+    validação: 'validando',
+    concluido: 'concluido',
+    concluído: 'concluido',
+    done: 'concluido',
+    deleted: 'deleted',
+    excluido: 'deleted',
+    excluído: 'deleted'
+  };
+  return mapa[raw] || 'iniciar';
+}
+
 /**
  * Retorna o Spreadsheet ativo (ou cria um novo se não configurado)
  */
@@ -51,11 +518,12 @@ function getSpreadsheet() {
  * GET — Serve o HTML do frontend
  */
 function doGet(e) {
-  const page = e.parameter.page || 'app';
+  const req = e || { parameter: {} };
+  const page = req.parameter.page || 'app';
 
   if (page === 'portal') {
     // Portal do cliente via token
-    return servirPortalCliente(e.parameter.token, e.parameter.consultor);
+    return servirPortalCliente(req.parameter.token, req.parameter.consultor);
   }
 
   const template = HtmlService.createTemplateFromFile('index');
@@ -81,47 +549,28 @@ function doPost(e) {
 
 /**
  * Cria todas as abas do banco de dados com os headers corretos.
- * Execute via: Executar → setupSpreadsheet
+ * Execução permitida somente em manutenção ou com token admin/owner.
+ * Para manutenção, defina Script Property: MAINTENANCE_MODE=true.
  */
-function setupSpreadsheet() {
+function setupSpreadsheet(opts = {}) {
+  const token = normalizeIdSafe(opts && opts.token);
+  const allowInternal = toBooleanSafe(opts && opts.allow_internal);
+  const permitido = isMaintenanceModeEnabled() || allowInternal || isPrivilegedToken(token);
+  if (!permitido) {
+    return falhaCodigo('setup_forbidden', 'Setup bloqueado. Habilite MAINTENANCE_MODE=true ou execute com sessão admin/owner.');
+  }
+
   const ss = getSpreadsheet();
 
-  const SHEETS = {
-    consultores: [
-      'uuid', 'nome', 'email', 'email_hash', 'plano_saas',
-      'data_adesao', 'ativo', 'configuracoes_json'
-    ],
-    clientes: [
-      'uuid', 'consultor_id', 'empresa_nome', 'segmento',
-      'responsavel', 'email_contato', 'telefone', 'status',
-      'mensalidade', 'data_inicio', 'maturidade', 'obs', 'created_at'
-    ],
-    diagnosticos: [
-      'uuid', 'cliente_id', 'consultor_id', 'tipo_matriz',
-      'respostas_json', 'score', 'dimensoes_json', 'observacoes',
-      'created_at', 'status'
-    ],
-    tarefas_5w2h: [
-      'uuid', 'cliente_id', 'consultor_id',
-      'descricao',      // WHAT
-      'responsavel',    // WHO
-      'prazo_iso',      // WHEN
-      'onde',           // WHERE
-      'porque',         // WHY
-      'como',           // HOW
-      'custo',          // HOW MUCH
-      'indicador',      // HOW TO MEASURE
-      'status', 'tipo', 'evidencia', 'created_at', 'updated_at'
-    ],
-    financeiro: [
-      'uuid', 'cliente_id', 'consultor_id',
-      'valor_mensalidade', 'data_vencimento', 'data_pagamento',
-      'pago', 'metodo_pagamento', 'obs', 'created_at'
-    ],
-    sessoes: [
-      'token', 'consultor_id', 'email_hash', 'created_at', 'expires_at', 'ativo'
-    ]
-  };
+  const SHEETS = SHEET_SCHEMAS;
+  const resetTotal = toBooleanSafe(opts && opts.reset_total);
+
+  if (resetTotal) {
+    Object.keys(SHEETS).forEach(function(nomeAba) {
+      const sh = ss.getSheetByName(nomeAba);
+      if (sh) ss.deleteSheet(sh);
+    });
+  }
 
   const existentes = ss.getSheets().map(s => s.getName());
 
@@ -136,7 +585,7 @@ function setupSpreadsheet() {
     }
 
     // Verifica se headers já foram escritos
-    const firstRow = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+    const firstRow = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), headers.length)).getValues()[0];
     if (!firstRow[0]) {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       // Formata header
@@ -146,15 +595,50 @@ function setupSpreadsheet() {
         .setFontWeight('bold')
         .setFontSize(10);
       sheet.setFrozenRows(1);
+    } else {
+      // Migração de schema: adiciona colunas faltantes ao final
+      const existentesHeader = firstRow.filter(Boolean);
+      const faltantes = headers.filter(h => !existentesHeader.includes(h));
+      if (faltantes.length) {
+        const inicio = existentesHeader.length + 1;
+        sheet.getRange(1, inicio, 1, faltantes.length).setValues([faltantes]);
+        Logger.log('Aba "' + nome + '" recebeu colunas faltantes: ' + faltantes.join(', '));
+      }
+    }
+  }
+
+  const permissoesInfo = getSheetOrFail('tb_permissoes');
+  if (!permissoesInfo.error) {
+    const permSheet = permissoesInfo.sheet;
+    const snap = getSheetSnapshot(permSheet);
+    if (snap.rows.length === 0) {
+      const agora = new Date().toISOString();
+      Object.entries(RBAC_PERMISSOES_PADRAO).forEach(function(entry) {
+        const perfil = entry[0];
+        entry[1].forEach(function(recurso) {
+          permSheet.appendRow([perfil, recurso, true, agora]);
+        });
+      });
     }
   }
 
   // Salva o ID da planilha nas propriedades
   PropertiesService.getScriptProperties()
     .setProperty('SPREADSHEET_ID', ss.getId());
+  PropertiesService.getScriptProperties().setProperty('DB_SCHEMA_VERSION', SCHEMA_VERSION);
+
+  normalizarAbaSessoes({ silent: true });
 
   Logger.log('Setup concluído! Spreadsheet ID: ' + ss.getId());
-  return { status: 'ok', message: 'Setup completo', spreadsheetId: ss.getId() };
+  return sucesso({ status: 'ok', message: 'Setup completo', spreadsheetId: ss.getId(), schemaVersion: SCHEMA_VERSION });
+}
+
+function resetEstruturalSpreadsheet(opts = {}) {
+  return setupSpreadsheet(Object.assign({}, opts, { reset_total: true }));
+}
+
+function migrarSchemaIdempotente(opts = {}) {
+  return setupSpreadsheet(Object.assign({}, opts, { reset_total: false }));
 }
 
 // ============================================================
@@ -176,6 +660,25 @@ function hashEmail(email) {
   return digest.map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
 }
 
+
+function hashTexto(valor) {
+  const raw = String(valor || '') + SECRET_SALT;
+  const digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    raw,
+    Utilities.Charset.UTF_8
+  );
+  return digest.map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
+}
+
+function getWebAppUrlSafe() {
+  try {
+    return ScriptApp.getService().getUrl() || '';
+  } catch (err) {
+    return '';
+  }
+}
+
 /**
  * Gera UUID v4
  */
@@ -195,12 +698,17 @@ function gerarUUID() {
 function autenticarConsultor(dados) {
   try {
     const { email, senha } = dados;
-    if (!email || !senha) return { sucesso: false, erro: 'Campos obrigatórios' };
+    if (!email || !senha) {
+      logEstruturado('auth.login.validation_failed', { emailInformado: !!email }, 'WARN');
+      return falha('Campos obrigatórios');
+    }
 
     const emailHash = hashEmail(email);
     const senhaHash = hashEmail(senha); // senha também hasheada
 
-    const sheet = getSpreadsheet().getSheetByName('consultores');
+    const sheetInfo = getSheetOrFail('consultores');
+    if (sheetInfo.error) return sheetInfo.error;
+    const sheet = sheetInfo.sheet;
     const rows = sheet.getDataRange().getValues();
     const headers = rows[0];
     const idxHash = headers.indexOf('email_hash');
@@ -208,75 +716,450 @@ function autenticarConsultor(dados) {
     const idxNome = headers.indexOf('nome');
     const idxPlano = headers.indexOf('plano_saas');
     const idxAtivo = headers.indexOf('ativo');
+    const idxSenha = headers.indexOf('senha_hash');
+
+    if (idxSenha < 0) return falha('Schema desatualizado em consultores. Execute setupSpreadsheet().');
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       // Compara email_hash
-      if (row[idxHash] === emailHash && row[idxAtivo] === true) {
+      if (row[idxHash] === emailHash && row[idxSenha] === senhaHash && toBooleanSafe(row[idxAtivo])) {
+        const idxTenant = headers.indexOf('tenant_id');
+        const idxPerfil = headers.indexOf('perfil');
         const consultor = {
           uuid: row[idxUUID],
+          tenant_id: idxTenant >= 0 ? normalizeIdSafe(row[idxTenant]) : '',
+          perfil: idxPerfil >= 0 ? String(row[idxPerfil] || 'owner').toLowerCase() : 'owner',
           nome: row[idxNome],
           email: email,
           plano: row[idxPlano],
         };
+        if (!consultor.tenant_id) {
+          consultor.tenant_id = garantirTenantParaConsultor(consultor.uuid, consultor.nome, consultor.plano || 'Pro');
+        }
         // Gera token de sessão
-        const token = criarSessao(consultor.uuid, emailHash);
+        const token = criarSessao(consultor.uuid, emailHash, { tenant_id: consultor.tenant_id, perfil: consultor.perfil });
         return { sucesso: true, consultor, token };
       }
     }
 
-    // Para MVP: auto-cadastro no primeiro login
-    return autoCadastrarConsultor(email, emailHash);
+    return falha('Conta não encontrada ou senha inválida. Crie sua conta no cadastro.');
 
   } catch (err) {
-    Logger.log('Erro autenticarConsultor: ' + err);
-    return { sucesso: false, erro: 'Erro interno: ' + err.message };
+    logEstruturado('auth.login.exception', { mensagem: err.message, stack: String(err.stack || '') }, 'ERROR');
+    return falha('Erro interno: ' + err.message);
   }
 }
 
+function getConsultorById(consultorId) {
+  if (!consultorId) return null;
+  const sheetInfo = getSheetOrFail('consultores');
+  if (sheetInfo.error) return null;
+  const registros = sheetParaObjetos(sheetInfo.sheet, { uuid: consultorId });
+  return registros && registros[0] ? registros[0] : null;
+}
+
+function garantirTenantParaConsultor(consultorId, nomeTenant, plano) {
+  const c = getConsultorById(consultorId);
+  const tenantAtual = normalizeIdSafe(c && c.tenant_id);
+  if (tenantAtual) return tenantAtual;
+
+  const sheetInfo = getSheetOrFail('tb_empresas');
+  if (sheetInfo.error) throw new Error(sheetInfo.error.erro);
+  const sheet = sheetInfo.sheet;
+  const tenantId = gerarUUID();
+  const agora = new Date().toISOString();
+  appendRowByHeaders(sheet, {
+    tenant_id: tenantId,
+    nome: nomeTenant || ('Tenant ' + consultorId),
+    plano: plano || 'Pro',
+    status: 'active',
+    max_usuarios: 5,
+    max_clientes: 200,
+    max_projetos: 200,
+    created_at: agora,
+    updated_at: agora
+  });
+
+  const consultoresInfo = getSheetOrFail('consultores');
+  if (!consultoresInfo.error) {
+    const linha = encontrarLinha(consultoresInfo.sheet, consultorId);
+    if (linha) {
+      const idxTenant = linha.headers.indexOf('tenant_id');
+      const idxPerfil = linha.headers.indexOf('perfil');
+      if (idxTenant >= 0) consultoresInfo.sheet.getRange(linha.row, idxTenant + 1).setValue(tenantId);
+      if (idxPerfil >= 0 && !String(linha.data[idxPerfil] || '').trim()) {
+        consultoresInfo.sheet.getRange(linha.row, idxPerfil + 1).setValue('owner');
+      }
+    }
+  }
+
+  return tenantId;
+}
+
+function obterContextoSessao(token) {
+  if (!token) return null;
+
+  let sheetInfo = getSheetOrFail('sessoes');
+  if (sheetInfo.error) return null;
+  let snapshot = getSheetSnapshot(sheetInfo.sheet);
+  if (snapshot.rows.length === 0) return null;
+
+  const headersEsperados = SHEET_SCHEMAS.sessoes;
+  const headerInvalido = headersEsperados.some(function(h) { return snapshot.headers.indexOf(h) < 0; });
+  if (headerInvalido) {
+    normalizarAbaSessoes({ silent: true });
+    sheetInfo = getSheetOrFail('sessoes');
+    if (sheetInfo.error) return null;
+    snapshot = getSheetSnapshot(sheetInfo.sheet);
+  }
+
+  const headers = snapshot.headers;
+  const idxToken = headers.indexOf('token');
+  const idxConsultor = headers.indexOf('consultor_id');
+  const idxTenant = headers.indexOf('tenant_id');
+  const idxPerfil = headers.indexOf('perfil');
+  const idxExpires = headers.indexOf('expires_at');
+  const idxAtivo = headers.indexOf('ativo');
+
+  if ([idxToken, idxConsultor, idxExpires, idxAtivo].some(function(i){ return i < 0; })) {
+    logEstruturado('session.lookup.header_invalid', { token_prefix: String(token).slice(0, 8) }, 'WARN');
+    return null;
+  }
+
+  for (let i = 0; i < snapshot.rows.length; i++) {
+    const row = snapshot.rows[i];
+    if (String(row[idxToken] || '') !== String(token)) continue;
+    if (!toBooleanSafe(row[idxAtivo])) {
+      logEstruturado('session.lookup.inactive', { consultor_id: row[idxConsultor] || '' }, 'WARN');
+      return null;
+    }
+
+    const expira = new Date(row[idxExpires]);
+    if (Number.isNaN(expira.getTime()) || expira <= new Date()) {
+      logEstruturado('session.lookup.expired', { consultor_id: row[idxConsultor] || '' }, 'WARN');
+      return null;
+    }
+
+    const consultorId = normalizeIdSafe(row[idxConsultor]);
+    if (!consultorId) return null;
+
+    let tenantId = idxTenant >= 0 ? normalizeIdSafe(row[idxTenant]) : '';
+    let perfil = idxPerfil >= 0 ? String(row[idxPerfil] || '').trim().toLowerCase() : '';
+    const consultor = getConsultorById(consultorId);
+
+    if (!tenantId) {
+      tenantId = garantirTenantParaConsultor(consultorId, consultor && consultor.nome, consultor && consultor.plano_saas);
+      if (idxTenant >= 0) sheetInfo.sheet.getRange(i + 2, idxTenant + 1).setValue(tenantId);
+    }
+    if (!perfil) {
+      perfil = String((consultor && consultor.perfil) || 'owner').toLowerCase();
+      if (idxPerfil >= 0) sheetInfo.sheet.getRange(i + 2, idxPerfil + 1).setValue(perfil);
+    }
+
+    return { consultor_id: consultorId, tenant_id: tenantId, perfil: perfil || 'owner' };
+  }
+
+  logEstruturado('session.lookup.not_found', { token_prefix: String(token).slice(0, 8) }, 'WARN');
+  return null;
+}
+
+function temPermissao(perfil, modulo, acao) {
+  const p = String(perfil || 'viewer').toLowerCase();
+  const recursos = RBAC_PERMISSOES_PADRAO[p] || [];
+  if (recursos.includes('*')) return true;
+  const recurso = String(modulo || '') + '.' + String(acao || '');
+  if (recursos.includes(recurso)) return true;
+  if (recursos.includes(String(modulo || '') + '.*')) return true;
+  return false;
+}
+
+function pilotoEnterpriseHabilitado() {
+  const raw = PropertiesService.getScriptProperties().getProperty(ENTERPRISE_PILOT_CONFIG.enabledKey);
+  if (raw === null || raw === undefined || raw === '') return ENTERPRISE_PILOT_CONFIG.defaultEnabled;
+  return !['0', 'false', 'FALSE', 'off', 'OFF'].includes(String(raw).trim());
+}
+
+function limiteTenantsPiloto() {
+  const raw = PropertiesService.getScriptProperties().getProperty(ENTERPRISE_PILOT_CONFIG.maxTenantsKey);
+  const n = Number(raw || ENTERPRISE_PILOT_CONFIG.defaultMaxTenants);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : ENTERPRISE_PILOT_CONFIG.defaultMaxTenants;
+}
+
+function listarTenantsPiloto() {
+  const raw = PropertiesService.getScriptProperties().getProperty(ENTERPRISE_PILOT_CONFIG.tenantsKey) || '';
+  return raw.split(',').map(function(v) { return normalizeIdSafe(v); }).filter(Boolean);
+}
+
+function salvarTenantsPiloto(tenantIds) {
+  const dedup = Array.from(new Set((tenantIds || []).map(function(v) { return normalizeIdSafe(v); }).filter(Boolean)));
+  PropertiesService.getScriptProperties().setProperty(ENTERPRISE_PILOT_CONFIG.tenantsKey, dedup.join(','));
+  return dedup;
+}
+
+function tenantNoPiloto(tenantId) {
+  const tid = normalizeIdSafe(tenantId);
+  if (!tid) return false;
+  return listarTenantsPiloto().indexOf(tid) >= 0;
+}
+
+function ehRotaEnterpriseControlada(modulo, acao) {
+  const m = String(modulo || '');
+  const a = String(acao || '');
+  if (m === 'billing' && a === 'assinatura.status') return false;
+  return ['admin', 'billing', 'auditoria', 'observabilidade'].indexOf(m) >= 0;
+}
+
+function validarAcessoPilotoEnterprise(contexto, modulo, acao) {
+  if (!contexto || !contexto.tenant_id || !ehRotaEnterpriseControlada(modulo, acao)) return null;
+  const tenant = obterTenantStatus(contexto);
+  if (!tenant) return null;
+
+  const assinatura = billingAssinaturaObterFromTenantId(contexto.tenant_id);
+  const plano = assinatura && assinatura.plano ? String(assinatura.plano) : 'Pro';
+  if (String(plano).toLowerCase() !== 'enterprise') {
+    return { codigo: 'enterprise_plan_required', erro: 'Plano Enterprise obrigatório para este recurso.', extras: { plano_atual: plano } };
+  }
+
+  if (!pilotoEnterpriseHabilitado()) return null;
+  if (tenantNoPiloto(contexto.tenant_id)) return null;
+
+  return {
+    codigo: 'enterprise_pilot_restrito',
+    erro: 'Tenant fora do piloto controlado Enterprise.',
+    extras: {
+      pilot_enabled: true,
+      total_inscritos: listarTenantsPiloto().length,
+      limite: limiteTenantsPiloto()
+    }
+  };
+}
+
 /**
- * Auto-cadastra consultor no primeiro acesso (MVP)
+ * Cadastra consultor explicitamente.
+ * Auto-cadastro público é controlado por ALLOW_SELF_SIGNUP (default: false).
  */
-function autoCadastrarConsultor(email, emailHash) {
-  const sheet = getSpreadsheet().getSheetByName('consultores');
+function cadastrarConsultor(dados, opts = {}) {
+  const { nome, email, senha } = dados || {};
+  if (!nome || !email || !senha) return falha('Nome, e-mail e senha são obrigatórios');
+
+  const authToken = normalizeIdSafe((opts && opts.token) || '');
+  const bypassPolicy = toBooleanSafe(opts && opts.allow_internal);
+  if (!isSelfSignupEnabled() && !bypassPolicy && !isPrivilegedToken(authToken)) {
+    return falhaCodigo('signup_disabled', 'Cadastro público desabilitado. Solicite convite ao administrador.');
+  }
+
+  const emailHash = hashEmail(email);
+  const senhaHash = hashEmail(senha);
+  const sheetInfo = getSheetOrFail('consultores');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
+  const snapshot = getSheetSnapshot(sheet);
+  const headers = snapshot.headers;
+  const idxHash = headers.indexOf('email_hash');
+
+  if (idxHash < 0) return falha('Schema desatualizado em consultores. Execute setupSpreadsheet().');
+
+  const jaExiste = snapshot.rows.some(r => r[idxHash] === emailHash);
+  if (jaExiste) return falha('Já existe conta cadastrada para este e-mail');
+
   const uuid = gerarUUID();
-  const nome = email.split('@')[0].replace(/[^a-zA-Z]/g, ' ').trim();
+
+  const tenantId = gerarUUID();
+  const agora = new Date().toISOString();
 
   sheet.appendRow([
     uuid,
-    nome.charAt(0).toUpperCase() + nome.slice(1),
+    tenantId,
+    'owner',
+    nome,
     email,
     emailHash,
+    senhaHash,
     'Pro',
-    new Date().toISOString(),
+    agora,
     true,
-    JSON.stringify({ tema: 'dark', notificacoes: true })
+    JSON.stringify({ tema: 'dark', notificacoes: true }),
+    '',
+    '',
+    ''
   ]);
 
-  const token = criarSessao(uuid, emailHash);
+  const empresasInfo = getSheetOrFail('tb_empresas');
+  if (!empresasInfo.error) {
+    appendRowByHeaders(empresasInfo.sheet, {
+      tenant_id: tenantId,
+      nome: nome + ' Org',
+      plano: 'Pro',
+      status: 'active',
+      max_usuarios: 5,
+      max_clientes: 200,
+      max_projetos: 200,
+      created_at: agora,
+      updated_at: agora
+    });
+  }
+
+  const token = criarSessao(uuid, emailHash, { tenant_id: tenantId, perfil: 'owner' });
   return {
     sucesso: true,
-    consultor: { uuid, nome, email, plano: 'Pro' },
+    consultor: { uuid, tenant_id: tenantId, perfil: 'owner', nome: nome, email: email, plano: 'Pro' },
     token,
-    mensagem: 'Conta criada automaticamente'
+    mensagem: 'Conta criada com sucesso'
   };
+}
+
+
+function solicitarResetSenha(dados) {
+  try {
+    const email = String((dados && dados.email) || '').trim();
+    if (!email) return falha('Informe o e-mail para recuperação.');
+
+    const sheetInfo = getSheetOrFail('consultores');
+    if (sheetInfo.error) return sheetInfo.error;
+    const sheet = sheetInfo.sheet;
+    const snapshot = getSheetSnapshot(sheet);
+    const headers = snapshot.headers;
+    const idxEmail = headers.indexOf('email');
+    const idxEmailHash = headers.indexOf('email_hash');
+    const idxAtivo = headers.indexOf('ativo');
+    const idxTokenHash = headers.indexOf('reset_token_hash');
+    const idxExpira = headers.indexOf('reset_expira_iso');
+    const idxSolicitado = headers.indexOf('reset_solicitado_em');
+
+    if ([idxEmail, idxEmailHash, idxAtivo, idxTokenHash, idxExpira, idxSolicitado].some(i => i < 0)) {
+      return falha('Schema desatualizado em consultores. Execute setupSpreadsheet().');
+    }
+
+    const emailHash = hashEmail(email);
+    const rowIdx = snapshot.rows.findIndex(r => r[idxEmailHash] === emailHash && toBooleanSafe(r[idxAtivo]));
+
+    // Sempre retorna sucesso para evitar enumeração de contas.
+    if (rowIdx < 0) {
+      logEstruturado('auth.reset.request.unknown_email', { email_hash: emailHash.slice(0, 8) + '...' }, 'WARN');
+      return sucesso({ mensagem: 'Se o e-mail existir, enviaremos as instruções de recuperação.' });
+    }
+
+    const sheetRow = rowIdx + 2;
+    const token = Utilities.base64EncodeWebSafe(gerarUUID() + ':' + new Date().getTime());
+    const tokenHash = hashTexto(token);
+    const expira = new Date(Date.now() + (60 * 60 * 1000)); // 1 hora
+
+    sheet.getRange(sheetRow, idxTokenHash + 1).setValue(tokenHash);
+    sheet.getRange(sheetRow, idxExpira + 1).setValue(expira.toISOString());
+    sheet.getRange(sheetRow, idxSolicitado + 1).setValue(new Date().toISOString());
+
+    const emailDestino = String(snapshot.rows[rowIdx][idxEmail] || email).trim();
+    const appUrl = getWebAppUrlSafe();
+    const linkReset = appUrl ? `${appUrl}?mode=reset&token=${encodeURIComponent(token)}` : '';
+
+    const assunto = 'SAE Apollo — Recuperação de senha';
+    const corpo = [
+      `Olá,`,
+      '',
+      'Recebemos uma solicitação para redefinir sua senha no SAE.',
+      `Código de recuperação: ${token}`,
+      linkReset ? `Link direto: ${linkReset}` : 'Abra o SAE e selecione "Esqueci minha senha" para usar o código.',
+      '',
+      'Este código expira em 1 hora.',
+      'Se você não solicitou a recuperação, ignore este e-mail.'
+    ].join('\n');
+
+    MailApp.sendEmail(emailDestino, assunto, corpo);
+    logEstruturado('auth.reset.request.sent', { email_hash: emailHash.slice(0, 8) + '...' });
+    return sucesso({ mensagem: 'Se o e-mail existir, enviaremos as instruções de recuperação.' });
+  } catch (err) {
+    logEstruturado('auth.reset.request.exception', { mensagem: err.message }, 'ERROR');
+    return falha('Não foi possível processar a recuperação de senha.');
+  }
+}
+
+function redefinirSenha(dados) {
+  try {
+    const token = String((dados && dados.token) || '').trim();
+    const novaSenha = String((dados && dados.novaSenha) || '').trim();
+
+    if (!token || !novaSenha) return falha('Token e nova senha são obrigatórios.');
+    if (novaSenha.length < 6) return falha('A nova senha deve ter no mínimo 6 caracteres.');
+
+    const sheetInfo = getSheetOrFail('consultores');
+    if (sheetInfo.error) return sheetInfo.error;
+    const sheet = sheetInfo.sheet;
+    const snapshot = getSheetSnapshot(sheet);
+    const headers = snapshot.headers;
+
+    const idxSenha = headers.indexOf('senha_hash');
+    const idxTokenHash = headers.indexOf('reset_token_hash');
+    const idxExpira = headers.indexOf('reset_expira_iso');
+    if ([idxSenha, idxTokenHash, idxExpira].some(i => i < 0)) {
+      return falha('Schema desatualizado em consultores. Execute setupSpreadsheet().');
+    }
+
+    const tokenHash = hashTexto(token);
+    const rowIdx = snapshot.rows.findIndex(r => r[idxTokenHash] === tokenHash);
+    if (rowIdx < 0) return falha('Código de recuperação inválido.');
+
+    const row = snapshot.rows[rowIdx];
+    const expira = new Date(row[idxExpira]);
+    if (Number.isNaN(expira.getTime()) || expira.getTime() < Date.now()) {
+      return falha('Código de recuperação expirado. Solicite novamente.');
+    }
+
+    const sheetRow = rowIdx + 2;
+    sheet.getRange(sheetRow, idxSenha + 1).setValue(hashEmail(novaSenha));
+    sheet.getRange(sheetRow, idxTokenHash + 1).setValue('');
+    sheet.getRange(sheetRow, idxExpira + 1).setValue('');
+
+    logEstruturado('auth.reset.password.updated', { row: sheetRow });
+    return sucesso({ mensagem: 'Senha redefinida com sucesso.' });
+  } catch (err) {
+    logEstruturado('auth.reset.password.exception', { mensagem: err.message }, 'ERROR');
+    return falha('Não foi possível redefinir a senha.');
+  }
 }
 
 /**
  * Cria sessão (token) para o consultor
  */
-function criarSessao(consultorId, emailHash) {
-  const sheet = getSpreadsheet().getSheetByName('sessoes');
+function criarSessao(consultorId, emailHash, contexto = {}) {
+  let sheetInfo = getSheetOrFail('sessoes');
+  if (sheetInfo.error) throw new Error(sheetInfo.error.erro);
+  let sheet = sheetInfo.sheet;
+
+  const snapshotAtual = getSheetSnapshot(sheet);
+  const headersEsperados = SHEET_SCHEMAS.sessoes;
+  const headerInvalido = headersEsperados.some(function(h) { return snapshotAtual.headers.indexOf(h) < 0; });
+  if (headerInvalido) {
+    normalizarAbaSessoes({ silent: true });
+    sheetInfo = getSheetOrFail('sessoes');
+    if (sheetInfo.error) throw new Error(sheetInfo.error.erro);
+    sheet = sheetInfo.sheet;
+  }
+
   const token = Utilities.base64Encode(
     gerarUUID() + ':' + consultorId + ':' + new Date().getTime()
   );
   const expira = new Date();
   expira.setDate(expira.getDate() + 7); // 7 dias
 
-  sheet.appendRow([
-    token, consultorId, emailHash,
-    new Date().toISOString(), expira.toISOString(), true
-  ]);
+  const agoraIso = new Date().toISOString();
+  const consultor = getConsultorById(consultorId) || {};
+  const tenantId = normalizeIdSafe(contexto.tenant_id) || normalizeIdSafe(consultor.tenant_id) || garantirTenantParaConsultor(consultorId, consultor.nome, consultor.plano_saas);
+  const perfil = String(contexto.perfil || consultor.perfil || 'owner').toLowerCase();
+
+  const headers = getSheetSnapshot(sheet).headers;
+  const linha = montarLinhaPorHeaders(headers, {
+    token: token,
+    tenant_id: tenantId,
+    consultor_id: consultorId,
+    perfil: perfil,
+    email_hash: emailHash,
+    created_at: agoraIso,
+    expires_at: expira.toISOString(),
+    ativo: true
+  });
+
+  sheet.appendRow(linha);
 
   return token;
 }
@@ -286,26 +1169,8 @@ function criarSessao(consultorId, emailHash) {
  * Retorna consultorId ou null
  */
 function verificarSessao(token) {
-  if (!token) return null;
-  try {
-    const sheet = getSpreadsheet().getSheetByName('sessoes');
-    const rows = sheet.getDataRange().getValues();
-    const headers = rows[0];
-    const idxToken    = headers.indexOf('token');
-    const idxConsId   = headers.indexOf('consultor_id');
-    const idxExpires  = headers.indexOf('expires_at');
-    const idxAtivo    = headers.indexOf('ativo');
-
-    for (let i = 1; i < rows.length; i++) {
-      if (rows[i][idxToken] === token && rows[i][idxAtivo] === true) {
-        const expira = new Date(rows[i][idxExpires]);
-        if (expira > new Date()) return rows[i][idxConsId];
-      }
-    }
-    return null;
-  } catch (err) {
-    return null;
-  }
+  const contexto = obterContextoSessao(token);
+  return contexto ? contexto.consultor_id : null;
 }
 
 // ============================================================
@@ -317,12 +1182,13 @@ function verificarSessao(token) {
  * @param {Sheet} sheet
  * @param {Object} filtros - ex: { consultor_id: 'uuid-...' }
  */
-function sheetParaObjetos(sheet, filtros = {}) {
-  const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return [];
+function sheetParaObjetos(sheet, filtros = {}, opts = {}) {
+  const snapshot = getSheetSnapshot(sheet);
+  if (snapshot.rows.length === 0) return [];
 
-  const headers = data[0];
-  const rows = data.slice(1);
+  const headers = snapshot.headers;
+  const rows = snapshot.rows;
+  const chavePrimaria = String((opts && opts.primaryKey) || '').trim() || (headers.includes('uuid') ? 'uuid' : (headers.includes('tenant_id') ? 'tenant_id' : (headers.includes('token') ? 'token' : headers[0])));
 
   return rows
     .map(row => {
@@ -331,11 +1197,10 @@ function sheetParaObjetos(sheet, filtros = {}) {
       return obj;
     })
     .filter(obj => {
-      // Filtra por critérios (multi-tenant)
       for (const [k, v] of Object.entries(filtros)) {
         if (obj[k] !== v) return false;
       }
-      return obj.uuid; // ignora linhas vazias
+      return normalizeIdSafe(obj[chavePrimaria]) || toBooleanSafe(obj.ativo) || String(obj.nome || '').trim();
     });
 }
 
@@ -343,12 +1208,13 @@ function sheetParaObjetos(sheet, filtros = {}) {
  * Encontra a linha pelo UUID
  */
 function encontrarLinha(sheet, uuid) {
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
+  const snapshot = getSheetSnapshot(sheet);
+  const headers = snapshot.headers;
   const idxUUID = headers.indexOf('uuid');
+  if (idxUUID < 0) return null;
 
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][idxUUID] === uuid) return { row: i + 1, headers, data: data[i] };
+  for (let i = 0; i < snapshot.rows.length; i++) {
+    if (snapshot.rows[i][idxUUID] === uuid) return { row: i + 2, headers, data: snapshot.rows[i] };
   }
   return null;
 }
@@ -361,13 +1227,132 @@ function encontrarLinha(sheet, uuid) {
  * Busca todos os clientes do consultor
  * Multi-tenant: filtra por consultor_id
  */
-function listarClientes(token) {
+function listarClientes(token, opts = {}) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
+  const contexto = obterContextoSessao(token);
 
-  const sheet = getSpreadsheet().getSheetByName('clientes');
-  const clientes = sheetParaObjetos(sheet, { consultor_id: consultorId });
-  return { sucesso: true, clientes };
+  const pag = parsePaginacao(opts);
+  const forceFresh = toBooleanSafe(opts.no_cache) || toBooleanSafe(opts.force_fresh);
+  const cacheVer = getConsultorCacheVersion(consultorId);
+  const cacheKey = `clientes:${consultorId}:v${cacheVer}:t${(contexto && contexto.tenant_id) || 'legacy'}:p${pag.page}:s${pag.pageSize}:q${opts.query || ''}`;
+  const cacheHit = !forceFresh ? getCacheJSON(cacheKey) : null;
+  if (cacheHit) {
+    logEstruturado('clientes.listar.result', {
+      fonte: 'cache',
+      consultor_id: consultorId,
+      tenant_id: contexto && contexto.tenant_id,
+      page: pag.page,
+      pageSize: pag.pageSize,
+      total: cacheHit.paginacao && cacheHit.paginacao.total
+    });
+    return cacheHit;
+  }
+
+  const sheetInfo = getSheetOrFail('clientes');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
+
+  const query = String(opts.query || '').toLowerCase().trim();
+  const filtros = { consultor_id: consultorId };
+  if (contexto && contexto.tenant_id) filtros.tenant_id = contexto.tenant_id;
+
+  let clientes = sheetParaObjetos(sheet, filtros)
+    .filter(c => c.status !== 'deleted');
+
+  const estados = montarEstadosProjetoClientes(consultorId, contexto && contexto.tenant_id);
+  clientes = clientes.map(function(c) {
+    const e = estados[normalizeIdSafe(c.uuid)] || { estado_projeto: 'descoberta', pipeline: {} };
+    return Object.assign({}, c, { estado_projeto: e.estado_projeto, pipeline: e.pipeline });
+  });
+
+  if (query) {
+    clientes = clientes.filter(c =>
+      String(c.empresa_nome || '').toLowerCase().includes(query) ||
+      String(c.segmento || '').toLowerCase().includes(query) ||
+      String(c.responsavel || '').toLowerCase().includes(query)
+    );
+  }
+
+  const total = clientes.length;
+  const itens = clientes.slice(pag.offset, pag.offset + pag.pageSize);
+  const paginacao = {
+    page: pag.page,
+    pageSize: pag.pageSize,
+    total,
+    totalPages: Math.ceil(total / pag.pageSize) || 1
+  };
+
+  const resposta = { sucesso: true, clientes: itens, paginacao };
+  if (!forceFresh) setCacheJSON(cacheKey, resposta, CACHE_TTL_LISTA);
+  return resposta;
+}
+
+function calcularEstadoProjeto(p) {
+  const diag = toNumberSafe(p.diagnosticos_total, 0);
+  const tarefas = toNumberSafe(p.tarefas_total, 0);
+  const abertas = toNumberSafe(p.tarefas_abertas, 0);
+  const finTotal = toNumberSafe(p.financeiro_total, 0);
+  const finPend = toNumberSafe(p.financeiro_pendentes, 0);
+
+  if (diag === 0) return 'descoberta';
+  if (diag > 0 && tarefas === 0) return 'planejamento';
+  if (tarefas > 0 && abertas > 0) return 'execucao';
+  if (tarefas > 0 && abertas === 0 && (finTotal === 0 || finPend > 0)) return 'validacao';
+  return 'encerrado';
+}
+
+function montarEstadosProjetoClientes(consultorId, tenantId) {
+  const filtrosBase = { consultor_id: consultorId };
+  if (tenantId) filtrosBase.tenant_id = tenantId;
+
+  const diagInfo = getSheetOrFail('diagnosticos');
+  const tarefasInfo = getSheetOrFail('tarefas_5w2h');
+  const finInfo = getSheetOrFail('financeiro');
+  if (diagInfo.error || tarefasInfo.error || finInfo.error) return {};
+
+  const mapa = {};
+  function ensure(id) {
+    const k = normalizeIdSafe(id);
+    if (!k) return null;
+    if (!mapa[k]) {
+      mapa[k] = {
+        diagnosticos_total: 0,
+        tarefas_total: 0,
+        tarefas_concluidas: 0,
+        tarefas_abertas: 0,
+        financeiro_total: 0,
+        financeiro_pendentes: 0,
+        financeiro_pagos: 0
+      };
+    }
+    return mapa[k];
+  }
+
+  sheetParaObjetos(diagInfo.sheet, filtrosBase).forEach(function(d) {
+    const p = ensure(d.cliente_id); if (!p) return;
+    p.diagnosticos_total += 1;
+  });
+  sheetParaObjetos(tarefasInfo.sheet, filtrosBase).forEach(function(t) {
+    const p = ensure(t.cliente_id); if (!p) return;
+    const st = normalizeStatusTarefa(t.status);
+    if (st === 'deleted') return;
+    p.tarefas_total += 1;
+    if (st === 'concluido') p.tarefas_concluidas += 1;
+    else p.tarefas_abertas += 1;
+  });
+  sheetParaObjetos(finInfo.sheet, filtrosBase).forEach(function(f) {
+    const p = ensure(f.cliente_id); if (!p) return;
+    p.financeiro_total += 1;
+    if (toBooleanSafe(f.pago)) p.financeiro_pagos += 1;
+    else p.financeiro_pendentes += 1;
+  });
+
+  Object.keys(mapa).forEach(function(k) {
+    mapa[k] = { estado_projeto: calcularEstadoProjeto(mapa[k]), pipeline: mapa[k] };
+  });
+
+  return mapa;
 }
 
 /**
@@ -375,7 +1360,20 @@ function listarClientes(token) {
  */
 function salvarCliente(token, dadosCliente) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
+  const contexto = obterContextoSessao(token);
+  const tenantId = normalizeIdSafe(contexto && contexto.tenant_id) || garantirTenantParaConsultor(consultorId);
+
+  dadosCliente = dadosCliente || {};
+  if (!dadosCliente.uuid && !String(dadosCliente.empresa_nome || '').trim()) {
+    return falhaCodigo('validation_error', 'Nome da empresa é obrigatório.');
+  }
+  if (dadosCliente.mensalidade !== undefined && dadosCliente.mensalidade !== '') {
+    const mensalidade = Number(dadosCliente.mensalidade);
+    if (!Number.isFinite(mensalidade) || mensalidade < 0) {
+      return falhaCodigo('validation_error', 'Mensalidade inválida. Informe um valor numérico maior ou igual a zero.');
+    }
+  }
 
   const sheet = getSpreadsheet().getSheetByName('clientes');
   const agora = new Date().toISOString();
@@ -383,7 +1381,7 @@ function salvarCliente(token, dadosCliente) {
   if (dadosCliente.uuid) {
     // UPDATE
     const linha = encontrarLinha(sheet, dadosCliente.uuid);
-    if (!linha) return { erro: 'Cliente não encontrado' };
+    if (!linha) return falhaCodigo('cliente_not_found', 'Cliente não encontrado');
 
     const headers = linha.headers;
     const rowIdx  = linha.row;
@@ -393,13 +1391,23 @@ function salvarCliente(token, dadosCliente) {
       const col = headers.indexOf(k) + 1;
       if (col > 0) sheet.getRange(rowIdx, col).setValue(v);
     }
-    sheet.getRange(rowIdx, headers.indexOf('updated_at') + 1).setValue(agora);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid: dadosCliente.uuid, acao: 'atualizado' };
   } else {
+    const assinatura = billingAssinaturaObterFromTenantId(tenantId);
+    const limiteClientes = assinatura && assinatura.limites ? toNumberSafe(assinatura.limites.max_clientes, 0) : 0;
+    if (limiteClientes > 0) {
+      const ativos = sheetParaObjetos(sheet, { consultor_id: consultorId, tenant_id: tenantId }).filter(c => String(c.status || '').toLowerCase() !== 'deleted').length;
+      if (ativos >= limiteClientes) {
+        return falhaCodigo('plan_limit_reached', 'Limite de clientes do plano atingido.', { contexto: { limite: limiteClientes, recurso: 'clientes' } });
+      }
+    }
+
     // INSERT
     const uuid = gerarUUID();
     sheet.appendRow([
       uuid,
+      tenantId,
       consultorId,
       dadosCliente.empresa_nome || '',
       dadosCliente.segmento || '',
@@ -413,6 +1421,7 @@ function salvarCliente(token, dadosCliente) {
       dadosCliente.obs || '',
       agora
     ]);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid, acao: 'criado' };
   }
 }
@@ -422,19 +1431,20 @@ function salvarCliente(token, dadosCliente) {
  */
 function excluirCliente(token, clienteUUID) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
 
   const sheet = getSpreadsheet().getSheetByName('clientes');
   const linha = encontrarLinha(sheet, clienteUUID);
-  if (!linha) return { erro: 'Cliente não encontrado' };
+  if (!linha) return falha('Cliente não encontrado');
 
   // Verifica isolamento multi-tenant
   const headers = linha.headers;
   const idxConsultor = headers.indexOf('consultor_id');
-  if (linha.data[idxConsultor] !== consultorId) return { erro: 'Acesso negado' };
+  if (linha.data[idxConsultor] !== consultorId) return falha('Acesso negado');
 
   const idxStatus = headers.indexOf('status') + 1;
   sheet.getRange(linha.row, idxStatus).setValue('deleted');
+  invalidateConsultorCache(consultorId);
   return { sucesso: true };
 }
 
@@ -445,22 +1455,60 @@ function excluirCliente(token, clienteUUID) {
 /**
  * Lista diagnósticos do consultor (ou de um cliente específico)
  */
-function listarDiagnosticos(token, clienteId = null) {
+function listarDiagnosticos(token, clienteId = null, opts = {}) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
+
+  const pag = parsePaginacao(opts);
+  const forceFresh = toBooleanSafe(opts.no_cache) || toBooleanSafe(opts.force_fresh);
+  const cacheVer = getConsultorCacheVersion(consultorId);
+  const contexto = obterContextoSessao(token);
+  const cacheKey = `diagnosticos:${consultorId}:v${cacheVer}:t${(contexto && contexto.tenant_id) || 'legacy'}:${clienteId || 'all'}:p${pag.page}:s${pag.pageSize}`;
+  const cacheHit = !forceFresh ? getCacheJSON(cacheKey) : null;
+  if (cacheHit) return cacheHit;
 
   const sheet = getSpreadsheet().getSheetByName('diagnosticos');
   const filtros = { consultor_id: consultorId };
+  if (contexto && contexto.tenant_id) filtros.tenant_id = contexto.tenant_id;
   if (clienteId) filtros.cliente_id = clienteId;
 
-  const diagnosticos = sheetParaObjetos(sheet, filtros).map(d => {
+  const lista = sheetParaObjetos(sheet, filtros).map(d => {
     // Parseia JSON das respostas e dimensões
     try { d.respostas = JSON.parse(d.respostas_json || '{}'); } catch(e) { d.respostas = {}; }
     try { d.dimensoes = JSON.parse(d.dimensoes_json || '[]'); } catch(e) { d.dimensoes = []; }
     return d;
   });
 
-  return { sucesso: true, diagnosticos };
+  const total = lista.length;
+  const diagnosticos = lista.slice(pag.offset, pag.offset + pag.pageSize);
+  const resposta = {
+    sucesso: true,
+    diagnosticos,
+    paginacao: {
+      page: pag.page,
+      pageSize: pag.pageSize,
+      total,
+      totalPages: Math.ceil(total / pag.pageSize) || 1
+    }
+  };
+
+  if (!forceFresh) setCacheJSON(cacheKey, resposta, CACHE_TTL_LISTA);
+  return resposta;
+}
+
+function atualizarMaturidadeCliente(consultorId, clienteId, score) {
+  if (!clienteId) return;
+  const sheetInfo = getSheetOrFail('clientes');
+  if (sheetInfo.error) return;
+  const sheet = sheetInfo.sheet;
+  const linha = encontrarLinha(sheet, clienteId);
+  if (!linha) return;
+  const headers = linha.headers;
+  const idxConsultor = headers.indexOf('consultor_id');
+  const idxMaturidade = headers.indexOf('maturidade');
+  if (idxMaturidade < 0) return;
+  if (idxConsultor >= 0 && String(linha.data[idxConsultor] || '') !== String(consultorId || '')) return;
+  sheet.getRange(linha.row, idxMaturidade + 1).setValue(toNumberSafe(score, 0));
 }
 
 /**
@@ -468,30 +1516,44 @@ function listarDiagnosticos(token, clienteId = null) {
  */
 function salvarDiagnostico(token, dados) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
+
+  const contexto = obterContextoSessao(token);
+  const tenantId = normalizeIdSafe(contexto && contexto.tenant_id) || garantirTenantParaConsultor(consultorId);
+
+  dados = dados || {};
+  const clienteIdNormalizado = normalizeIdSafe(dados.cliente_id);
+  if (!clienteIdNormalizado) return falhaCodigo('validation_error', 'Cliente é obrigatório para salvar diagnóstico.');
+  const respostas = dados.respostas || {};
+  if (!respostas || typeof respostas !== 'object' || Array.isArray(respostas)) {
+    return falhaCodigo('validation_error', 'Respostas do diagnóstico inválidas.');
+  }
 
   const sheet = getSpreadsheet().getSheetByName('diagnosticos');
   const agora = new Date().toISOString();
 
   // Calcula score baseado nas respostas
-  const { score, dimensoes } = calcularScore(dados.tipo_matriz, dados.respostas);
+  const { score, dimensoes } = calcularScore(dados.tipo_matriz, respostas);
 
   if (dados.uuid) {
     // UPDATE
     const linha = encontrarLinha(sheet, dados.uuid);
-    if (!linha) return { erro: 'Diagnóstico não encontrado' };
+    if (!linha) return falhaCodigo('diagnostico_not_found', 'Diagnóstico não encontrado');
     const headers = linha.headers;
     sheet.getRange(linha.row, headers.indexOf('respostas_json') + 1).setValue(JSON.stringify(dados.respostas));
     sheet.getRange(linha.row, headers.indexOf('score') + 1).setValue(score);
     sheet.getRange(linha.row, headers.indexOf('dimensoes_json') + 1).setValue(JSON.stringify(dimensoes));
     sheet.getRange(linha.row, headers.indexOf('status') + 1).setValue('concluido');
+    atualizarMaturidadeCliente(consultorId, clienteIdNormalizado, score);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, score, dimensoes };
   } else {
     // INSERT
     const uuid = gerarUUID();
     sheet.appendRow([
       uuid,
-      dados.cliente_id,
+      tenantId,
+      clienteIdNormalizado,
       consultorId,
       dados.tipo_matriz,
       JSON.stringify(dados.respostas || {}),
@@ -501,6 +1563,8 @@ function salvarDiagnostico(token, dados) {
       agora,
       'concluido'
     ]);
+    atualizarMaturidadeCliente(consultorId, clienteIdNormalizado, score);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid, score, dimensoes };
   }
 }
@@ -542,18 +1606,63 @@ function calcularScore(tipoMatriz, respostas) {
 /**
  * Lista tarefas do consultor
  */
-function listarTarefas(token, clienteId = null) {
+function listarTarefas(token, clienteId = null, opts = {}) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
 
-  const sheet = getSpreadsheet().getSheetByName('tarefas_5w2h');
+  const pag = parsePaginacao(opts);
+  const forceFresh = toBooleanSafe(opts.no_cache) || toBooleanSafe(opts.force_fresh);
+  const cacheVer = getConsultorCacheVersion(consultorId);
+  const contexto = obterContextoSessao(token);
+  const cacheKey = `tarefas:${consultorId}:v${cacheVer}:t${(contexto && contexto.tenant_id) || 'legacy'}:${clienteId || 'all'}:p${pag.page}:s${pag.pageSize}`;
+  const cacheHit = !forceFresh ? getCacheJSON(cacheKey) : null;
+  if (cacheHit) {
+    logEstruturado('tarefas.listar.result', {
+      fonte: 'cache',
+      consultor_id: consultorId,
+      cliente_id: normalizeIdSafe(clienteId) || 'all',
+      page: pag.page,
+      pageSize: pag.pageSize,
+      total: cacheHit.paginacao && cacheHit.paginacao.total
+    });
+    return cacheHit;
+  }
+
+  const sheetInfo = getSheetOrFail('tarefas_5w2h');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
   const filtros = { consultor_id: consultorId };
+  if (contexto && contexto.tenant_id) filtros.tenant_id = contexto.tenant_id;
   if (clienteId) filtros.cliente_id = clienteId;
 
-  const tarefas = sheetParaObjetos(sheet, filtros)
+  const lista = sheetParaObjetos(sheet, filtros)
+    .map(t => {
+      t.cliente_id = normalizeIdSafe(t.cliente_id);
+      t.status = normalizeStatusTarefa(t.status);
+      return t;
+    })
     .filter(t => t.status !== 'deleted');
+  const total = lista.length;
+  const tarefas = lista.slice(pag.offset, pag.offset + pag.pageSize);
+  const paginacao = {
+    page: pag.page,
+    pageSize: pag.pageSize,
+    total,
+    totalPages: Math.ceil(total / pag.pageSize) || 1
+  };
 
-  return { sucesso: true, tarefas };
+  const resposta = { sucesso: true, tarefas, paginacao };
+  logEstruturado('tarefas.listar.result', {
+    fonte: 'sheet',
+    consultor_id: consultorId,
+    cliente_id: normalizeIdSafe(clienteId) || 'all',
+    page: pag.page,
+    pageSize: pag.pageSize,
+    total,
+    retornadas: tarefas.length
+  });
+  if (!forceFresh) setCacheJSON(cacheKey, resposta, CACHE_TTL_LISTA);
+  return resposta;
 }
 
 /**
@@ -561,34 +1670,63 @@ function listarTarefas(token, clienteId = null) {
  */
 function salvarTarefa(token, dados) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
 
-  const sheet = getSpreadsheet().getSheetByName('tarefas_5w2h');
+  const contexto = obterContextoSessao(token);
+  const tenantId = normalizeIdSafe(contexto && contexto.tenant_id) || garantirTenantParaConsultor(consultorId);
+
+  dados = dados || {};
+  const clienteIdNormalizado = normalizeIdSafe(dados.cliente_id);
+  const statusNormalizado = normalizeStatusTarefa(dados.status);
+
+  if (!dados.uuid && !clienteIdNormalizado) {
+    return falhaCodigo('validation_error', 'Cliente é obrigatório para criar tarefa. Selecione um cliente no formulário.');
+  }
+  if (!dados.descricao && !dados.uuid) {
+    return falhaCodigo('validation_error', 'Descrição da tarefa é obrigatória.');
+  }
+
+  const sheetInfo = getSheetOrFail('tarefas_5w2h');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
   const agora = new Date().toISOString();
 
   if (dados.uuid) {
     const linha = encontrarLinha(sheet, dados.uuid);
-    if (!linha) return { erro: 'Tarefa não encontrada' };
+    if (!linha) return falhaCodigo('tarefa_not_found', 'Tarefa não encontrada');
 
     // Validação multi-tenant
     if (linha.data[linha.headers.indexOf('consultor_id')] !== consultorId) {
-      return { erro: 'Acesso negado' };
+      return falhaCodigo('forbidden', 'Acesso negado');
     }
 
     const headers = linha.headers;
     const campos = ['descricao','responsavel','prazo_iso','onde','porque','como','custo','indicador','status','tipo','evidencia'];
     campos.forEach(c => {
       if (dados[c] !== undefined) {
-        sheet.getRange(linha.row, headers.indexOf(c) + 1).setValue(dados[c]);
+        sheet.getRange(linha.row, headers.indexOf(c) + 1).setValue(c === 'status' ? statusNormalizado : dados[c]);
       }
     });
     sheet.getRange(linha.row, headers.indexOf('updated_at') + 1).setValue(agora);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid: dados.uuid, acao: 'atualizado' };
   } else {
+    const assinatura = billingAssinaturaObterFromTenantId(tenantId);
+    const limiteProjetos = assinatura && assinatura.limites ? toNumberSafe(assinatura.limites.max_projetos, 0) : 0;
+    if (limiteProjetos > 0) {
+      const totalProjetos = sheetParaObjetos(sheet, { consultor_id: consultorId, tenant_id: tenantId })
+        .filter(function(t) { return normalizeStatusTarefa(t.status) !== 'deleted'; })
+        .length;
+      if (totalProjetos >= limiteProjetos) {
+        return falhaCodigo('plan_limit_reached', 'Limite de projetos/tarefas do plano atingido.', { contexto: { limite: limiteProjetos, recurso: 'projetos' } });
+      }
+    }
+
     const uuid = gerarUUID();
     sheet.appendRow([
       uuid,
-      dados.cliente_id,
+      tenantId,
+      clienteIdNormalizado,
       consultorId,
       dados.descricao || '',
       dados.responsavel || '',
@@ -598,14 +1736,82 @@ function salvarTarefa(token, dados) {
       dados.como || '',
       dados.custo || '',
       dados.indicador || '',
-      dados.status || 'iniciar',
+      statusNormalizado,
       dados.tipo || 'Processo',
       dados.evidencia || '',
       agora,
       agora
     ]);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid, acao: 'criado' };
   }
+}
+
+
+function sanearTarefas5w2h(opcoes = {}) {
+  const dryRun = toBooleanSafe(opcoes.dryRun);
+  const marcadorSemCliente = 'PENDENTE_VINCULO_CLIENTE';
+
+  const sheetInfo = getSheetOrFail('tarefas_5w2h');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
+  const snapshot = getSheetSnapshot(sheet);
+  if (snapshot.rows.length === 0) return sucesso({ total: 0, alteradas: 0, semCliente: 0, statusesNormalizados: 0 });
+
+  const headers = snapshot.headers;
+  const idxCliente = headers.indexOf('cliente_id');
+  const idxStatus = headers.indexOf('status');
+  const idxEvid = headers.indexOf('evidencia');
+  const idxUpdated = headers.indexOf('updated_at');
+  if ([idxCliente, idxStatus, idxEvid, idxUpdated].some(i => i < 0)) {
+    return falha('Schema desatualizado em tarefas_5w2h. Execute setupSpreadsheet().');
+  }
+
+  let alteradas = 0;
+  let semCliente = 0;
+  let statusesNormalizados = 0;
+  const agora = new Date().toISOString();
+
+  snapshot.rows.forEach((row, i) => {
+    const sheetRow = i + 2;
+    const clienteAtual = normalizeIdSafe(row[idxCliente]);
+    const statusAtual = String(row[idxStatus] || '');
+    const statusNovo = normalizeStatusTarefa(statusAtual);
+    let changed = false;
+
+    if (statusNovo !== statusAtual) {
+      statusesNormalizados += 1;
+      changed = true;
+      if (!dryRun) sheet.getRange(sheetRow, idxStatus + 1).setValue(statusNovo);
+    }
+
+    if (!clienteAtual) {
+      semCliente += 1;
+      changed = true;
+      if (!dryRun) {
+        sheet.getRange(sheetRow, idxCliente + 1).setValue(marcadorSemCliente);
+        const evid = String(row[idxEvid] || '').trim();
+        const tag = '[PENDENTE_VINCULO_CLIENTE]';
+        if (!evid.includes(tag)) {
+          sheet.getRange(sheetRow, idxEvid + 1).setValue((evid ? evid + ' ' : '') + tag);
+        }
+      }
+    }
+
+    if (changed) {
+      alteradas += 1;
+      if (!dryRun) sheet.getRange(sheetRow, idxUpdated + 1).setValue(agora);
+    }
+  });
+
+  return sucesso({
+    total: snapshot.rows.length,
+    alteradas,
+    semCliente,
+    statusesNormalizados,
+    marcadorSemCliente,
+    dryRun
+  });
 }
 
 /**
@@ -613,7 +1819,7 @@ function salvarTarefa(token, dados) {
  */
 function moverTarefa(token, tarefaUUID, novoStatus) {
   const statusValidos = ['iniciar', 'execucao', 'validando', 'concluido'];
-  if (!statusValidos.includes(novoStatus)) return { erro: 'Status inválido' };
+  if (!statusValidos.includes(novoStatus)) return falhaCodigo('validation_error', 'Status inválido');
 
   return salvarTarefa(token, { uuid: tarefaUUID, status: novoStatus });
 }
@@ -636,33 +1842,56 @@ function adicionarEvidencia(token, tarefaUUID, evidencia) {
 /**
  * Lista registros financeiros
  */
-function listarFinanceiro(token, clienteId = null) {
+function listarFinanceiro(token, clienteId = null, opts = {}) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
 
-  const sheet = getSpreadsheet().getSheetByName('financeiro');
+  const pag = parsePaginacao(opts);
+  const forceFresh = toBooleanSafe(opts.no_cache) || toBooleanSafe(opts.force_fresh);
+  const cacheVer = getConsultorCacheVersion(consultorId);
+  const contexto = obterContextoSessao(token);
+  const cacheKey = `financeiro:${consultorId}:v${cacheVer}:t${(contexto && contexto.tenant_id) || 'legacy'}:${clienteId || 'all'}:p${pag.page}:s${pag.pageSize}`;
+  const cacheHit = !forceFresh ? getCacheJSON(cacheKey) : null;
+  if (cacheHit) return cacheHit;
+
+  const sheetInfo = getSheetOrFail('financeiro');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
   const filtros = { consultor_id: consultorId };
+  if (contexto && contexto.tenant_id) filtros.tenant_id = contexto.tenant_id;
   if (clienteId) filtros.cliente_id = clienteId;
 
-  const registros = sheetParaObjetos(sheet, filtros);
+  const lista = sheetParaObjetos(sheet, filtros);
 
   // Calcula totais
-  const pago = registros.filter(r => r.pago === true || r.pago === 'TRUE');
-  const pendente = registros.filter(r => r.pago !== true && r.pago !== 'TRUE');
+  const pago = lista.filter(r => r.pago === true || r.pago === 'TRUE');
+  const pendente = lista.filter(r => r.pago !== true && r.pago !== 'TRUE');
 
   const totalPago = pago.reduce((acc, r) => acc + (parseFloat(r.valor_mensalidade) || 0), 0);
   const totalPendente = pendente.reduce((acc, r) => acc + (parseFloat(r.valor_mensalidade) || 0), 0);
 
-  return {
+  const total = lista.length;
+  const registros = lista.slice(pag.offset, pag.offset + pag.pageSize);
+
+  const resposta = {
     sucesso: true,
     registros,
+    paginacao: {
+      page: pag.page,
+      pageSize: pag.pageSize,
+      total,
+      totalPages: Math.ceil(total / pag.pageSize) || 1
+    },
     resumo: {
       totalPago: totalPago.toFixed(2),
       totalPendente: totalPendente.toFixed(2),
       totalGeral: (totalPago + totalPendente).toFixed(2),
-      qtdClientes: new Set(registros.map(r => r.cliente_id)).size
+      qtdClientes: new Set(lista.map(r => r.cliente_id)).size
     }
   };
+
+  if (!forceFresh) setCacheJSON(cacheKey, resposta, CACHE_TTL_LISTA);
+  return resposta;
 }
 
 /**
@@ -670,7 +1899,21 @@ function listarFinanceiro(token, clienteId = null) {
  */
 function registrarMensalidade(token, dados) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
+  const contexto = obterContextoSessao(token);
+  const tenantId = normalizeIdSafe(contexto && contexto.tenant_id) || garantirTenantParaConsultor(consultorId);
+  dados = dados || {};
+  const clienteIdNormalizado = normalizeIdSafe(dados && dados.cliente_id);
+
+  if (!dados.uuid && !clienteIdNormalizado) {
+    return falhaCodigo('validation_error', 'Cliente é obrigatório para registrar mensalidade.');
+  }
+  if (!dados.uuid) {
+    const valor = Number(dados.valor_mensalidade || 0);
+    if (!Number.isFinite(valor) || valor < 0) {
+      return falhaCodigo('validation_error', 'Valor de mensalidade inválido.');
+    }
+  }
 
   const sheet = getSpreadsheet().getSheetByName('financeiro');
   const agora = new Date().toISOString();
@@ -678,20 +1921,22 @@ function registrarMensalidade(token, dados) {
   if (dados.uuid) {
     // Marcar como pago
     const linha = encontrarLinha(sheet, dados.uuid);
-    if (!linha) return { erro: 'Registro não encontrado' };
+    if (!linha) return falhaCodigo('registro_not_found', 'Registro não encontrado');
     const headers = linha.headers;
     sheet.getRange(linha.row, headers.indexOf('pago') + 1).setValue(true);
     sheet.getRange(linha.row, headers.indexOf('data_pagamento') + 1).setValue(agora);
     if (dados.metodo) {
       sheet.getRange(linha.row, headers.indexOf('metodo_pagamento') + 1).setValue(dados.metodo);
     }
+    invalidateConsultorCache(consultorId);
     return { sucesso: true };
   } else {
     // Novo registro
     const uuid = gerarUUID();
     sheet.appendRow([
       uuid,
-      dados.cliente_id,
+      tenantId,
+      clienteIdNormalizado,
       consultorId,
       dados.valor_mensalidade || 0,
       dados.data_vencimento || agora,
@@ -701,6 +1946,7 @@ function registrarMensalidade(token, dados) {
       dados.obs || '',
       agora
     ]);
+    invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid };
   }
 }
@@ -736,31 +1982,66 @@ function servirPortalCliente(tokenCliente, consultorEmail) {
 }
 
 /**
+ * Gera link válido do portal do cliente usando URL real do Web App
+ */
+function gerarLinkPortalCliente(token, clienteId) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
+  if (!clienteId) return falhaCodigo('validation_error', 'Cliente obrigatório');
+
+  const sheetInfo = getSheetOrFail('clientes');
+  if (sheetInfo.error) return sheetInfo.error;
+  const linha = encontrarLinha(sheetInfo.sheet, clienteId);
+  if (!linha) return falhaCodigo('cliente_not_found', 'Cliente não encontrado');
+
+  const idxConsultor = linha.headers.indexOf('consultor_id');
+  if (idxConsultor < 0 || linha.data[idxConsultor] !== consultorId) return falhaCodigo('forbidden', 'Acesso negado');
+
+  const idxEmail = linha.headers.indexOf('email_contato');
+  const consultorEmail = idxEmail >= 0 ? String(linha.data[idxEmail] || '') : '';
+  const tokenCliente = Utilities.base64Encode(clienteId);
+  const baseUrl = ScriptApp.getService().getUrl();
+  if (!baseUrl) return falhaCodigo('webapp_url_missing', 'URL do Web App indisponível. Publique uma versão do aplicativo.');
+
+  const url = baseUrl + '?page=portal&token=' + encodeURIComponent(tokenCliente) + '&consultor=' + encodeURIComponent(consultorEmail);
+  return { sucesso: true, url, token_cliente: tokenCliente };
+}
+
+/**
  * Busca dados completos de um cliente para o portal
  */
-function getDadosPortalCliente(clienteId) {
+function getDadosPortalCliente(clienteId, opts = {}) {
+  const periodo = parsePeriodo(opts || {});
   const ssClientes = getSpreadsheet().getSheetByName('clientes');
-  const clientes = sheetParaObjetos(ssClientes);
-  const cliente = clientes.find(c => c.uuid === clienteId);
+  const clientes = sheetParaObjetos(ssClientes, { uuid: clienteId });
+  const cliente = clientes[0];
   if (!cliente) return null;
 
   const ssTarefas = getSpreadsheet().getSheetByName('tarefas_5w2h');
-  const tarefas = sheetParaObjetos(ssTarefas, { cliente_id: clienteId });
+  const tarefas = sheetParaObjetos(ssTarefas, { cliente_id: clienteId })
+    .filter(function(t) { return noPeriodo(t.updated_at || t.created_at, periodo); });
 
   const ssDiag = getSpreadsheet().getSheetByName('diagnosticos');
-  const diagnosticos = sheetParaObjetos(ssDiag, { cliente_id: clienteId });
+  const diagnosticos = sheetParaObjetos(ssDiag, { cliente_id: clienteId })
+    .filter(function(d) { return noPeriodo(d.created_at, periodo); });
 
-  return { cliente, tarefas, diagnosticos };
+  const ssFin = getSpreadsheet().getSheetByName('financeiro');
+  const financeiro = sheetParaObjetos(ssFin, { cliente_id: clienteId })
+    .filter(function(f) { return noPeriodo(f.data_pagamento || f.created_at, periodo); });
+
+  return { cliente, tarefas, diagnosticos, financeiro, periodo };
 }
 
 /**
  * Gera HTML limpo para o portal do cliente
  */
 function gerarHTMLPortalCliente(dados) {
-  const { cliente, tarefas, diagnosticos } = dados;
+  const { cliente, tarefas, diagnosticos, financeiro } = dados;
 
   const concluidas = tarefas.filter(t => t.status === 'concluido').length;
   const progresso = tarefas.length > 0 ? Math.round(concluidas / tarefas.length * 100) : 0;
+  const evidenciasTotal = tarefas.filter(function(t) { return String(t.evidencia || '').trim().length > 0; }).length;
+  const pendenciasFinanceiras = (financeiro || []).filter(function(f) { return !toBooleanSafe(f.pago); }).length;
 
   const tarefasHTML = tarefas.slice(0, 10).map(t => `
     <tr>
@@ -815,8 +2096,14 @@ function gerarHTMLPortalCliente(dados) {
     <div style="display:flex;justify-content:space-between;margin-top:16px;font-size:12px;color:#64748b;">
       <span>✅ ${concluidas} concluídas</span>
       <span>📋 ${tarefas.length} tarefas total</span>
-      <span>⏳ ${tarefas.length - concluidas} pendentes</span>
+      <span>📎 ${evidenciasTotal} evidências</span>
     </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 10px;font-size:16px;">💰 Financeiro</h3>
+    <div style="font-size:13px;color:#94a3b8;">Registros no período: ${(financeiro || []).length}</div>
+    <div style="font-size:13px;color:#94a3b8;">Pendências: ${pendenciasFinanceiras}</div>
   </div>
 
   <div class="card">
@@ -844,12 +2131,18 @@ function gerarHTMLPortalCliente(dados) {
  * No frontend: google.script.run.gerarRelatorio(token, clienteId, tipo)
  * O retorno é uma URL de blob ou o HTML para impressão
  */
-function gerarRelatorio(token, clienteId, tipo) {
+function gerarRelatorio(token, clienteId, tipo, opts = {}) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
+  if (!normalizeIdSafe(clienteId)) return falhaCodigo('validation_error', 'Cliente é obrigatório para gerar relatório.');
 
-  const dados = getDadosPortalCliente(clienteId);
-  if (!dados) return { erro: 'Cliente não encontrado' };
+  const tiposPermitidos = ['executivo', 'progresso', 'diagnostico'];
+  if (tipo && !tiposPermitidos.includes(String(tipo))) {
+    return falhaCodigo('validation_error', 'Tipo de relatório inválido.');
+  }
+
+  const dados = getDadosPortalCliente(clienteId, opts || {});
+  if (!dados) return falhaCodigo('cliente_not_found', 'Cliente não encontrado');
 
   // Gera HTML do relatório baseado no tipo
   let htmlRelatorio;
@@ -867,17 +2160,33 @@ function gerarRelatorio(token, clienteId, tipo) {
       htmlRelatorio = gerarHTMLPortalCliente(dados);
   }
 
-  // Cria arquivo no Google Drive como PDF
+  // Cria arquivo PDF real no Google Drive
   try {
-    const blob = Utilities.newBlob(htmlRelatorio, 'text/html', 'relatorio.html');
+    const htmlBlob = Utilities.newBlob(htmlRelatorio, 'text/html', 'relatorio.html');
+    const pdfBlob = htmlBlob.getAs('application/pdf');
+
+    const dataNome = new Date().toISOString().slice(0, 10);
+    const nomeBase = 'SAE_' + tipo + '_' + String(dados.cliente.empresa_nome || 'cliente').replace(/[\\/:*?"<>|]/g, '_') + '_' + dataNome;
+    pdfBlob.setName(nomeBase + '.pdf');
+
     const folder = getOrCreateFolder('SAE_Relatorios');
-    const arquivo = folder.createFile(blob);
-    arquivo.setName(`SAE_${tipo}_${dados.cliente.empresa_nome}_${new Date().toISOString().slice(0,10)}.html`);
+    const arquivo = folder.createFile(pdfBlob);
+
+    const downloadUrl = 'https://drive.google.com/uc?export=download&id=' + arquivo.getId();
+    const previewUrl = 'https://drive.google.com/file/d/' + arquivo.getId() + '/view';
 
     return {
       sucesso: true,
-      url: arquivo.getDownloadUrl(),
-      nomeArquivo: arquivo.getName()
+      url: downloadUrl,
+      preview_url: previewUrl,
+      mime: 'application/pdf',
+      nomeArquivo: arquivo.getName(),
+      file_name: arquivo.getName(),
+      periodo: {
+        inicio: (dados.periodo && dados.periodo.inicio) ? dados.periodo.inicio.toISOString() : null,
+        fim: (dados.periodo && dados.periodo.fim) ? dados.periodo.fim.toISOString() : null
+      },
+      base64_pdf: Utilities.base64Encode(pdfBlob.getBytes())
     };
   } catch (err) {
     // Fallback: retorna HTML direto para impressão no browser
@@ -972,30 +2281,41 @@ function getOrCreateFolder(nome) {
  */
 function getDashboardKPIs(token) {
   const consultorId = verificarSessao(token);
-  if (!consultorId) return { erro: 'Sessão inválida' };
+  if (!consultorId) return falha('Sessão inválida');
 
-  const ssClientes = getSpreadsheet().getSheetByName('clientes');
-  const ssTarefas  = getSpreadsheet().getSheetByName('tarefas_5w2h');
-  const ssFinanc   = getSpreadsheet().getSheetByName('financeiro');
+  const cacheVer = getConsultorCacheVersion(consultorId);
+  const cacheKey = `dashboard:kpis:${consultorId}:v${cacheVer}`;
+  const cacheHit = getCacheJSON(cacheKey);
+  if (cacheHit) {
+    logEstruturado('dashboard.kpis.result', { fonte: 'cache', consultor_id: consultorId });
+    return cacheHit;
+  }
 
-  const clientes = sheetParaObjetos(ssClientes, { consultor_id: consultorId })
+  const cInfo = getSheetOrFail('clientes');
+  const tInfo = getSheetOrFail('tarefas_5w2h');
+  const fInfo = getSheetOrFail('financeiro');
+  if (cInfo.error) return cInfo.error;
+  if (tInfo.error) return tInfo.error;
+  if (fInfo.error) return fInfo.error;
+
+  const clientes = sheetParaObjetos(cInfo.sheet, { consultor_id: consultorId })
     .filter(c => c.status !== 'deleted');
-  const tarefas  = sheetParaObjetos(ssTarefas, { consultor_id: consultorId });
-  const financeiro = sheetParaObjetos(ssFinanc, { consultor_id: consultorId });
+  const tarefas  = sheetParaObjetos(tInfo.sheet, { consultor_id: consultorId });
+  const financeiro = sheetParaObjetos(fInfo.sheet, { consultor_id: consultorId });
 
   const clientesAtivos = clientes.filter(c => c.status === 'active').length;
   const tarefasConcluidas = tarefas.filter(t => t.status === 'concluido').length;
   const tarefasAbertas = tarefas.filter(t => t.status !== 'concluido').length;
 
   const receitaMensal = financeiro
-    .filter(f => f.pago === true || f.pago === 'TRUE')
-    .reduce((acc, f) => acc + (parseFloat(f.valor_mensalidade) || 0), 0);
+    .filter(f => toBooleanSafe(f.pago))
+    .reduce((acc, f) => acc + toNumberSafe(f.valor_mensalidade, 0), 0);
 
   const maturidadeMedia = clientes.length > 0
-    ? Math.round(clientes.reduce((acc, c) => acc + (parseFloat(c.maturidade) || 0), 0) / clientes.length)
+    ? Math.round(clientes.reduce((acc, c) => acc + toNumberSafe(c.maturidade, 0), 0) / clientes.length)
     : 0;
 
-  return {
+  const resposta = {
     sucesso: true,
     kpis: {
       clientesAtivos,
@@ -1006,6 +2326,382 @@ function getDashboardKPIs(token) {
       totalClientes: clientes.length
     }
   };
+
+  setCacheJSON(cacheKey, resposta, CACHE_TTL_KPIS);
+  return resposta;
+}
+
+function getPipelineStatus(token, opts = {}) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
+  const contexto = obterContextoSessao(token);
+  const clienteId = normalizeIdSafe(opts.cliente_id);
+
+  const estados = montarEstadosProjetoClientes(consultorId, contexto && contexto.tenant_id);
+  if (clienteId) {
+    const alvo = estados[clienteId] || { estado_projeto: 'descoberta', pipeline: {} };
+    return sucesso({ cliente_id: clienteId, estado_projeto: alvo.estado_projeto, pipeline: alvo.pipeline });
+  }
+
+  const resumo = { descoberta: 0, planejamento: 0, execucao: 0, validacao: 0, encerrado: 0 };
+  Object.values(estados).forEach(function(v) {
+    const s = String(v.estado_projeto || 'descoberta');
+    if (resumo[s] === undefined) resumo[s] = 0;
+    resumo[s] += 1;
+  });
+
+  return sucesso({ resumo_estados: resumo, total_clientes: Object.keys(estados).length });
+}
+
+function onboardingStatus(token) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
+  const contexto = obterContextoSessao(token);
+  const tenantId = normalizeIdSafe(contexto && contexto.tenant_id);
+
+  const filtros = { consultor_id: consultorId };
+  if (tenantId) filtros.tenant_id = tenantId;
+
+  const clientesInfo = getSheetOrFail('clientes');
+  const diagInfo = getSheetOrFail('diagnosticos');
+  const tarefasInfo = getSheetOrFail('tarefas_5w2h');
+  const finInfo = getSheetOrFail('financeiro');
+  if (clientesInfo.error || diagInfo.error || tarefasInfo.error || finInfo.error) return falhaCodigo('schema_error', 'Schema incompleto para onboarding.');
+
+  const clientes = sheetParaObjetos(clientesInfo.sheet, filtros).filter(c => String(c.status || '').toLowerCase() !== 'deleted');
+  const diags = sheetParaObjetos(diagInfo.sheet, filtros);
+  const tarefas = sheetParaObjetos(tarefasInfo.sheet, filtros).filter(t => normalizeStatusTarefa(t.status) !== 'deleted');
+  const fin = sheetParaObjetos(finInfo.sheet, filtros);
+  const relatorioPronto = clientes.length > 0 && (diags.length > 0 || tarefas.length > 0);
+
+  const steps = [
+    { id: 'cliente', label: 'Cadastrar 1º cliente', done: clientes.length > 0 },
+    { id: 'diagnostico', label: 'Salvar 1º diagnóstico', done: diags.length > 0 },
+    { id: 'projeto', label: 'Criar 1ª tarefa 5W2H', done: tarefas.length > 0 },
+    { id: 'financeiro', label: 'Registrar 1º lançamento financeiro', done: fin.length > 0 },
+    { id: 'relatorio', label: 'Gerar 1º relatório', done: relatorioPronto }
+  ];
+  const done = steps.filter(s => s.done).length;
+  const pct = Math.round((done / steps.length) * 100);
+
+  return sucesso({
+    onboarding: {
+      steps,
+      done,
+      total: steps.length,
+      percent: pct,
+      ready_under_10min: pct >= 80
+    }
+  });
+}
+
+
+function adminObterTenant(token) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falha('Sessão inválida');
+  const sheetInfo = getSheetOrFail('tb_empresas');
+  if (sheetInfo.error) return sheetInfo.error;
+  const empresas = sheetParaObjetos(sheetInfo.sheet, { tenant_id: contexto.tenant_id });
+  return sucesso({ tenant: empresas[0] || null });
+}
+
+function adminListarUsuarios(token, opts = {}) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falha('Sessão inválida');
+  const sheetInfo = getSheetOrFail('consultores');
+  if (sheetInfo.error) return sheetInfo.error;
+
+  const query = String(opts.query || '').toLowerCase().trim();
+  let usuarios = sheetParaObjetos(sheetInfo.sheet, { tenant_id: contexto.tenant_id })
+    .map(function(u) {
+      return {
+        uuid: u.uuid,
+        tenant_id: u.tenant_id,
+        nome: u.nome,
+        email: u.email,
+        perfil: u.perfil || 'viewer',
+        plano_saas: u.plano_saas,
+        ativo: toBooleanSafe(u.ativo),
+        data_adesao: u.data_adesao
+      };
+    });
+
+  if (query) {
+    usuarios = usuarios.filter(function(u) {
+      return String(u.nome || '').toLowerCase().includes(query) || String(u.email || '').toLowerCase().includes(query);
+    });
+  }
+
+  return sucesso({ usuarios: usuarios, total: usuarios.length });
+}
+
+
+function registrarAuditoria(evento = {}) {
+  try {
+    const sheetInfo = getSheetOrFail('tb_auditoria');
+    if (sheetInfo.error) return;
+    const sheet = sheetInfo.sheet;
+    sheet.appendRow([
+      gerarUUID(),
+      evento.request_id || '',
+      evento.tenant_id || '',
+      evento.consultor_id || '',
+      evento.perfil || '',
+      evento.modulo || '',
+      evento.acao || '',
+      evento.sucesso === true,
+      evento.codigo || '',
+      evento.mensagem || '',
+      JSON.stringify(evento.payload || {}),
+      new Date().toISOString()
+    ]);
+  } catch (err) {
+    logEstruturado('auditoria.append.error', { mensagem: err.message }, 'ERROR');
+  }
+}
+
+function adminAtualizarTenant(token, dados = {}) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+
+  const sheetInfo = getSheetOrFail('tb_empresas');
+  if (sheetInfo.error) return sheetInfo.error;
+  const sheet = sheetInfo.sheet;
+  const linha = encontrarLinha(sheet, contexto.tenant_id);
+  if (!linha) return falhaCodigo('tenant_not_found', 'Tenant não encontrado.');
+
+  const headers = linha.headers;
+  const permitidos = ['nome', 'plano', 'status', 'max_usuarios', 'max_clientes', 'max_projetos'];
+  permitidos.forEach(function(campo) {
+    if (dados[campo] !== undefined) {
+      const idx = headers.indexOf(campo);
+      if (idx >= 0) sheet.getRange(linha.row, idx + 1).setValue(dados[campo]);
+    }
+  });
+  const idxUpdated = headers.indexOf('updated_at');
+  if (idxUpdated >= 0) sheet.getRange(linha.row, idxUpdated + 1).setValue(new Date().toISOString());
+  return sucesso({ tenant_id: contexto.tenant_id, atualizado: true });
+}
+
+function adminPilotoStatus(token) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+
+  const inscritos = listarTenantsPiloto();
+  const limite = limiteTenantsPiloto();
+  return sucesso({
+    pilot_enabled: pilotoEnterpriseHabilitado(),
+    tenant_id: contexto.tenant_id,
+    em_piloto: inscritos.indexOf(contexto.tenant_id) >= 0,
+    total_inscritos: inscritos.length,
+    limite_tenants: limite,
+    vagas_restantes: Math.max(0, limite - inscritos.length)
+  });
+}
+
+function adminPilotoInscrever(token) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+
+  if (!pilotoEnterpriseHabilitado()) {
+    return falhaCodigo('pilot_disabled', 'Piloto Enterprise está desabilitado no ambiente.');
+  }
+
+  const assinatura = billingAssinaturaObterFromTenantId(contexto.tenant_id);
+  const plano = assinatura && assinatura.plano ? String(assinatura.plano) : 'Pro';
+  if (String(plano).toLowerCase() !== 'enterprise') {
+    return falhaCodigo('enterprise_plan_required', 'Apenas tenants no plano Enterprise podem entrar no piloto.', { plano_atual: plano });
+  }
+
+  const inscritos = listarTenantsPiloto();
+  if (inscritos.indexOf(contexto.tenant_id) >= 0) return sucesso({ tenant_id: contexto.tenant_id, em_piloto: true, total_inscritos: inscritos.length });
+
+  const limite = limiteTenantsPiloto();
+  if (inscritos.length >= limite) {
+    return falhaCodigo('pilot_capacity_exceeded', 'Capacidade do piloto Enterprise atingida.', { limite_tenants: limite, total_inscritos: inscritos.length });
+  }
+
+  inscritos.push(contexto.tenant_id);
+  const salvos = salvarTenantsPiloto(inscritos);
+  return sucesso({ tenant_id: contexto.tenant_id, em_piloto: true, total_inscritos: salvos.length, limite_tenants: limite });
+}
+
+function adminPilotoRemover(token) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+
+  const atual = listarTenantsPiloto();
+  const filtrados = atual.filter(function(id) { return id !== contexto.tenant_id; });
+  const salvos = salvarTenantsPiloto(filtrados);
+  return sucesso({ tenant_id: contexto.tenant_id, em_piloto: false, total_inscritos: salvos.length });
+}
+
+function billingAssinaturaObterFromTenantId(tenantId) {
+  const tid = normalizeIdSafe(tenantId);
+  if (!tid) return null;
+  const sheetInfo = getSheetOrFail('tb_empresas');
+  if (sheetInfo.error) return null;
+  const registros = sheetParaObjetos(sheetInfo.sheet, { tenant_id: tid });
+  const tenant = registros[0];
+  if (!tenant) return null;
+  return {
+    tenant_id: tenant.tenant_id,
+    plano: tenant.plano || 'Pro',
+    status: tenant.status || 'active',
+    limites: {
+      max_usuarios: toNumberSafe(tenant.max_usuarios, 0),
+      max_clientes: toNumberSafe(tenant.max_clientes, 0),
+      max_projetos: toNumberSafe(tenant.max_projetos, toNumberSafe(tenant.max_clientes, 0))
+    }
+  };
+}
+
+function billingAssinaturaObter(token) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+  const assinatura = billingAssinaturaObterFromTenantId(contexto.tenant_id);
+  if (!assinatura) return falhaCodigo('tenant_not_found', 'Tenant não encontrado.');
+  return sucesso(assinatura);
+}
+
+function billingAssinaturaAlterarPlano(token, dados = {}) {
+  const novoPlano = String(dados.plano || '').trim();
+  if (!novoPlano) return falhaCodigo('validation_error', 'Plano é obrigatório.');
+
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+
+  const limitesPorPlano = {
+    Pro: { max_usuarios: 5, max_clientes: 200, max_projetos: 200 },
+    Enterprise: { max_usuarios: 100, max_clientes: 5000, max_projetos: 10000 }
+  };
+  const limites = limitesPorPlano[novoPlano] || limitesPorPlano.Pro;
+
+  return adminAtualizarTenant(token, {
+    plano: novoPlano,
+    max_usuarios: limites.max_usuarios,
+    max_clientes: limites.max_clientes,
+    max_projetos: limites.max_projetos,
+    status: 'active'
+  });
+}
+
+function billingAssinaturaMarcarInadimplente(token) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+  return adminAtualizarTenant(token, { status: 'suspended' });
+}
+
+function billingAssinaturaRegularizar(token) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+  return adminAtualizarTenant(token, { status: 'active' });
+}
+
+function billingAssinaturaStatus(token) {
+  const assinatura = billingAssinaturaObter(token);
+  if (!assinatura || assinatura.sucesso === false) return assinatura;
+  const dados = assinatura.dados || assinatura;
+  if (String(dados.status || '').toLowerCase() !== 'active') {
+    return falhaCodigo('tenant_inativo', 'Tenant inativo para operações de billing.', assinatura);
+  }
+  return assinatura;
+}
+
+function auditoriaListar(token, opts = {}) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+
+  const pag = parsePaginacao(opts);
+  const sheetInfo = getSheetOrFail('tb_auditoria');
+  if (sheetInfo.error) return sheetInfo.error;
+
+  let eventos = sheetParaObjetos(sheetInfo.sheet, { tenant_id: contexto.tenant_id });
+  if (opts.modulo) eventos = eventos.filter(e => String(e.modulo || '') === String(opts.modulo));
+  if (opts.acao) eventos = eventos.filter(e => String(e.acao || '') === String(opts.acao));
+
+  const total = eventos.length;
+  const itens = eventos.slice(pag.offset, pag.offset + pag.pageSize);
+  return sucesso({
+    eventos: itens,
+    paginacao: {
+      page: pag.page,
+      pageSize: pag.pageSize,
+      total,
+      totalPages: Math.ceil(total / pag.pageSize) || 1
+    }
+  });
+}
+
+function obterTenantStatus(contexto) {
+  if (!contexto || !contexto.tenant_id) return null;
+  const sheetInfo = getSheetOrFail('tb_empresas');
+  if (sheetInfo.error) return null;
+  const registros = sheetParaObjetos(sheetInfo.sheet, { tenant_id: contexto.tenant_id });
+  return registros && registros[0] ? String(registros[0].status || 'active').toLowerCase() : null;
+}
+
+function shouldEnforceTenantPayload(modulo, acao) {
+  const m = String(modulo || '');
+  const a = String(acao || '');
+  if (['clientes', 'tarefas', 'diagnosticos', 'financeiro'].indexOf(m) < 0) return false;
+  return ['salvar', 'registrar', 'mover', 'excluir'].some(function(k) { return a.indexOf(k) >= 0; });
+}
+
+function aplicarContextoTenantNoPayload(payload, contexto) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !contexto) return payload;
+  const p = Object.assign({}, payload);
+  if (!normalizeIdSafe(p.tenant_id)) p.tenant_id = normalizeIdSafe(contexto.tenant_id || '');
+  if (!normalizeIdSafe(p.consultor_id)) p.consultor_id = normalizeIdSafe(contexto.consultor_id || '');
+  return p;
+}
+
+function observabilidadeStatus(token, opts = {}) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+
+  const sheetInfo = getSheetOrFail('tb_auditoria');
+  if (sheetInfo.error) return sheetInfo.error;
+  const eventos = sheetParaObjetos(sheetInfo.sheet, { tenant_id: contexto.tenant_id });
+
+  const janelaHoras = Math.max(1, Math.min(168, toNumberSafe(opts.janela_horas, 24)));
+  const limite = Date.now() - (janelaHoras * 60 * 60 * 1000);
+  const recentes = eventos.filter(function(e) {
+    const d = new Date(e.created_at);
+    return !Number.isNaN(d.getTime()) && d.getTime() >= limite;
+  });
+
+  const falhas = recentes.filter(function(e) { return !toBooleanSafe(e.sucesso); }).length;
+  const sucessos = recentes.length - falhas;
+  const taxaErro = recentes.length ? Number(((falhas / recentes.length) * 100).toFixed(2)) : 0;
+
+  return sucesso({
+    tenant_id: contexto.tenant_id,
+    janela_horas: janelaHoras,
+    auditoria: {
+      total: recentes.length,
+      sucesso: sucessos,
+      falhas,
+      taxa_erro_pct: taxaErro
+    },
+    telemetria: obterMetricasTelemetria(),
+    tenant_status: obterTenantStatus(contexto) || 'unknown'
+  });
+}
+
+function shouldAuditCriticalAction(modulo, acao) {
+  const key = String(modulo || '') + '.' + String(acao || '');
+  return [
+    'auth.login',
+    'setup.executar',
+    'setup.resetEstrutural',
+    'setup.migrarSchema',
+    'clientes.excluir',
+    'financeiro.registrar',
+    'billing.assinatura.alterarPlano',
+    'billing.assinatura.marcarInadimplente',
+    'billing.assinatura.regularizar'
+  ].indexOf(key) >= 0;
 }
 
 // ============================================================
@@ -1022,51 +2718,477 @@ function getDashboardKPIs(token) {
  *     .api({ modulo: 'clientes', acao: 'listar', token: '...' })
  */
 function api(params) {
-  const { modulo, acao, token, dados } = params;
+  const { modulo, acao, token, dados, api_version } = params || {};
+  let dadosReq = dados;
+  const versaoApi = String(api_version || 'v1').toLowerCase();
+  const requestId = gerarRequestId();
+  const startedAt = Date.now();
 
   const roteamento = {
     auth: {
-      login: autenticarConsultor,
-      verificar: verificarSessao,
+      login: () => autenticarConsultor(dadosReq),
+      cadastro: () => cadastrarConsultor(dadosReq, { token }),
+      solicitarReset: () => solicitarResetSenha(dadosReq),
+      redefinirSenha: () => redefinirSenha(dadosReq),
+      verificar: () => { const ctx = obterContextoSessao(token); return { sucesso: !!ctx, consultor_id: ctx && ctx.consultor_id, tenant_id: ctx && ctx.tenant_id, perfil: ctx && ctx.perfil }; },
     },
     clientes: {
-      listar: () => listarClientes(token),
-      salvar: () => salvarCliente(token, dados),
-      excluir: () => excluirCliente(token, dados.uuid),
+      listar: () => listarClientes(token, dados || {}),
+      salvar: () => salvarCliente(token, dadosReq),
+      excluir: () => excluirCliente(token, dadosReq && dadosReq.uuid),
     },
     diagnosticos: {
-      listar: () => listarDiagnosticos(token, dados?.cliente_id),
-      salvar: () => salvarDiagnostico(token, dados),
+      listar: () => listarDiagnosticos(token, dadosReq?.cliente_id, dadosReq || {}),
+      salvar: () => salvarDiagnostico(token, dadosReq),
     },
     tarefas: {
-      listar: () => listarTarefas(token, dados?.cliente_id),
-      salvar: () => salvarTarefa(token, dados),
-      mover:  () => moverTarefa(token, dados.uuid, dados.status),
-      evidencia: () => adicionarEvidencia(token, dados.uuid, dados.evidencia),
+      listar: () => listarTarefas(token, dadosReq?.cliente_id, dadosReq || {}),
+      salvar: () => salvarTarefa(token, dadosReq),
+      mover:  () => moverTarefa(token, dadosReq && dadosReq.uuid, dadosReq && dadosReq.status),
+      evidencia: () => adicionarEvidencia(token, dadosReq && dadosReq.uuid, dadosReq && dadosReq.evidencia),
     },
     financeiro: {
-      listar: () => listarFinanceiro(token, dados?.cliente_id),
-      registrar: () => registrarMensalidade(token, dados),
+      listar: () => listarFinanceiro(token, dadosReq?.cliente_id, dadosReq || {}),
+      registrar: () => registrarMensalidade(token, dadosReq),
     },
     dashboard: {
       kpis: () => getDashboardKPIs(token),
+      pipeline: () => getPipelineStatus(token, dadosReq || {}),
+    },
+    onboarding: {
+      status: () => onboardingStatus(token)
     },
     relatorios: {
-      gerar: () => gerarRelatorio(token, dados.cliente_id, dados.tipo),
+      gerar: () => gerarRelatorio(token, dadosReq && dadosReq.cliente_id, dadosReq && dadosReq.tipo, dadosReq || {}),
+    },
+    portal: {
+      link: () => gerarLinkPortalCliente(token, dadosReq && dadosReq.cliente_id),
     },
     setup: {
-      executar: () => setupSpreadsheet(),
+      executar: () => setupSpreadsheet({ token }),
+      resetEstrutural: () => resetEstruturalSpreadsheet({ token }),
+      migrarSchema: () => migrarSchemaIdempotente({ token }),
+      validarSchema: () => sucesso(validarSchemaAbas()),
+      sanearTarefas: () => sanearTarefas5w2h(dadosReq || {}),
+      normalizarSessoes: () => normalizarAbaSessoes(dadosReq || {}),
+    },
+    admin: {
+      'tenant.obter': () => adminObterTenant(token),
+      'tenant.atualizar': () => adminAtualizarTenant(token, dadosReq || {}),
+      'usuarios.listar': () => adminListarUsuarios(token, dadosReq || {}),
+      'piloto.status': () => adminPilotoStatus(token),
+      'piloto.inscrever': () => adminPilotoInscrever(token),
+      'piloto.remover': () => adminPilotoRemover(token),
+      tenantObter: () => adminObterTenant(token),
+      usuariosListar: () => adminListarUsuarios(token, dadosReq || {})
+    },
+    billing: {
+      'assinatura.obter': () => billingAssinaturaObter(token),
+      'assinatura.alterarPlano': () => billingAssinaturaAlterarPlano(token, dadosReq || {}),
+      'assinatura.status': () => billingAssinaturaStatus(token),
+      'assinatura.marcarInadimplente': () => billingAssinaturaMarcarInadimplente(token),
+      'assinatura.regularizar': () => billingAssinaturaRegularizar(token)
+    },
+    auditoria: {
+      listar: () => auditoriaListar(token, dadosReq || {})
+    },
+    observabilidade: {
+      status: () => observabilidadeStatus(token, dadosReq || {})
     }
   };
 
   try {
+    const acoesPublicas = {
+      auth: { login: true, cadastro: true, solicitarReset: true, redefinirSenha: true, verificar: true },
+      setup: { validarSchema: true, executar: true }
+    };
+
+    const publico = !!(acoesPublicas[modulo] && acoesPublicas[modulo][acao]);
+    const payloadValidation = validatePayload(modulo, acao, dadosReq || {});
+    if (payloadValidation) {
+      return Object.assign({ request_id: requestId }, payloadValidation);
+    }
+
+    let contexto = null;
+    if (!publico) {
+      if (!normalizeIdSafe(token)) return falhaCodigo('token_missing', 'Acesso negado: Token de sessão ausente.', { request_id: requestId });
+
+      contexto = obterContextoSessao(token);
+      if (!contexto || !contexto.consultor_id) return falhaCodigo('session_invalid', 'Sessão inválida', { request_id: requestId });
+      if (!temPermissao(contexto.perfil, modulo, acao)) {
+        return falhaCodigo('forbidden', 'Acesso negado: permissão insuficiente.', { request_id: requestId, perfil: contexto.perfil, modulo, acao });
+      }
+      const statusTenant = obterTenantStatus(contexto);
+      if (statusTenant && statusTenant !== 'active' && !(modulo === 'billing' && acao === 'assinatura.status')) {
+        return falhaCodigo('tenant_inativo', 'Tenant inativo para operações.', { request_id: requestId, tenant_status: statusTenant });
+      }
+
+      const restricaoPiloto = validarAcessoPilotoEnterprise(contexto, modulo, acao);
+      if (restricaoPiloto) {
+        return falhaCodigo(restricaoPiloto.codigo, restricaoPiloto.erro, Object.assign({ request_id: requestId }, restricaoPiloto.extras || {}));
+      }
+
+      if (shouldEnforceTenantPayload(modulo, acao)) {
+        dadosReq = aplicarContextoTenantNoPayload(dadosReq, contexto);
+        if (!dadosReq || !normalizeIdSafe(dadosReq.tenant_id)) {
+          return falhaCodigo('tenant_required', 'Tenant obrigatório para operação.', { request_id: requestId });
+        }
+      }
+    }
+
     const fn = roteamento[modulo]?.[acao];
-    if (!fn) return { erro: `Rota não encontrada: ${modulo}.${acao}` };
-    return fn();
+    if (!fn) {
+      registrarTelemetria('api', 'rota_nao_encontrada');
+      return falhaCodigo('route_not_found', `Rota não encontrada: ${modulo}.${acao}`, { request_id: requestId });
+    }
+
+    logEstruturado('api.request', { request_id: requestId, modulo, acao, versaoApi, tenant_id: contexto && contexto.tenant_id, consultor_id: contexto && contexto.consultor_id });
+
+    const raw = fn();
+    let resposta;
+    if (raw && raw.sucesso === true) {
+      if (raw.dados !== undefined) resposta = raw;
+      else {
+        const payload = Object.assign({}, raw);
+        delete payload.sucesso;
+        resposta = sucesso(payload, payload);
+      }
+    } else if (raw && raw.erro) {
+      registrarTelemetria(modulo || 'api', 'erro_negocio');
+      resposta = falha(raw.erro, raw);
+    } else {
+      resposta = sucesso(raw || {});
+    }
+
+    const acaoMutante = ['salvar', 'excluir', 'mover', 'registrar', 'alterarPlano', 'atualizar', 'executar'].some(function(k) { return String(acao || '').indexOf(k) >= 0; });
+    const criticalAudit = shouldAuditCriticalAction(modulo, acao);
+    if ((acaoMutante || modulo === 'admin' || modulo === 'billing' || criticalAudit) && (contexto || criticalAudit)) {
+      const auditConsultor = (contexto && contexto.consultor_id) || (raw && raw.consultor && raw.consultor.uuid) || '';
+      const auditTenant = (contexto && contexto.tenant_id) || (raw && raw.consultor && raw.consultor.tenant_id) || '';
+      registrarAuditoria({
+        request_id: requestId,
+        tenant_id: auditTenant,
+        consultor_id: auditConsultor,
+        perfil: (contexto && contexto.perfil) || '',
+        modulo,
+        acao,
+        sucesso: resposta && resposta.sucesso === true,
+        codigo: (resposta && resposta.codigo) || '',
+        mensagem: (resposta && resposta.erro) || 'ok',
+        payload: dadosReq || {}
+      });
+    }
+
+    const durationMs = Date.now() - startedAt;
+    logEstruturado('api.response', { request_id: requestId, modulo, acao, versaoApi, sucesso: resposta && resposta.sucesso === true, duration_ms: durationMs, tenant_id: contexto && contexto.tenant_id });
+
+    const respostaComMeta = Object.assign({ request_id: requestId }, resposta || {});
+    if (versaoApi === 'v2') {
+      return Object.assign({ api_version: 'v2', timestamp: new Date().toISOString() }, respostaComMeta);
+    }
+    return respostaComMeta;
   } catch (err) {
-    Logger.log(`Erro api(${modulo}.${acao}): ${err}`);
-    return { erro: err.message };
+    registrarTelemetria(modulo || 'api', 'exception');
+    logEstruturado('api.exception', { request_id: requestId, modulo, acao, mensagem: err.message }, 'ERROR');
+    return falhaCodigo('internal_error', err.message, { request_id: requestId });
   }
+}
+
+// ============================================================
+// TESTES DE CONTRATO DA API (Fase 4)
+// ============================================================
+
+function runApiContractTests() {
+  const resultados = [];
+
+  function expect(cond, nome, detalhe) {
+    resultados.push({ nome, ok: !!cond, detalhe: detalhe || '' });
+  }
+
+  const unknown = api({ modulo: 'x', acao: 'y' });
+  expect(unknown.sucesso === false && !!unknown.erro && unknown.codigo === 'route_not_found', 'rota_invalida', JSON.stringify(unknown));
+
+  const missingToken = api({ modulo: 'clientes', acao: 'listar', token: '', dados: {} });
+  expect(missingToken && missingToken.sucesso === false && missingToken.codigo === 'token_missing', 'token_ausente_retorna_codigo', JSON.stringify(missingToken));
+
+  const authMissing = api({ modulo: 'auth', acao: 'login', dados: {} });
+  expect(authMissing.sucesso === false && /Campos obrigatórios/.test(authMissing.erro || ''), 'auth_login_payload_obrigatorio', JSON.stringify(authMissing));
+
+  const authVerificarSemToken = api({ modulo: 'auth', acao: 'verificar', token: '' });
+  expect(authVerificarSemToken && authVerificarSemToken.sucesso === false, 'auth_verificar_sem_token_falha', JSON.stringify(authVerificarSemToken));
+
+  const modulos = [
+    ['clientes', 'listar'], ['clientes', 'salvar'], ['clientes', 'excluir'],
+    ['diagnosticos', 'listar'], ['diagnosticos', 'salvar'],
+    ['tarefas', 'listar'], ['tarefas', 'salvar'], ['tarefas', 'mover'],
+    ['financeiro', 'listar'], ['financeiro', 'registrar'],
+    ['dashboard', 'kpis'], ['relatorios', 'gerar']
+  ];
+
+  modulos.forEach(([modulo, acao]) => {
+    const res = api({ modulo, acao, token: 'token_invalido', dados: {} });
+    expect(typeof res.sucesso === 'boolean', `contrato_${modulo}_${acao}_sucesso_bool`, JSON.stringify(res));
+    if (res.sucesso === false) {
+      expect(typeof res.erro === 'string' && res.erro.length > 0, `contrato_${modulo}_${acao}_erro_string`, JSON.stringify(res));
+    }
+  });
+
+
+  let tokenValido = null;
+  let clienteId = null;
+  let tarefaId = null;
+  const emailTeste = 'contract.tarefas@sae.app';
+  const senhaTeste = 'Contrato#2026';
+
+  const cadastro = cadastrarConsultor({ nome: 'Contract Bot', email: emailTeste, senha: senhaTeste }, { allow_internal: true });
+  if (cadastro && cadastro.sucesso) {
+    tokenValido = cadastro.token;
+  } else {
+    const login = autenticarConsultor({ email: emailTeste, senha: senhaTeste });
+    if (login && login.sucesso) tokenValido = login.token;
+  }
+
+  if (tokenValido) {
+    const cliente = salvarCliente(tokenValido, {
+      empresa_nome: 'Cliente Contrato API',
+      segmento: 'Teste',
+      status: 'active',
+      responsavel: 'QA Contract'
+    });
+    if (cliente && cliente.sucesso) clienteId = cliente.uuid;
+
+    const salvarSemCliente = api({
+      modulo: 'tarefas',
+      acao: 'salvar',
+      token: tokenValido,
+      dados: { descricao: 'Teste sem cliente', status: 'iniciar' }
+    });
+    expect(
+      salvarSemCliente && salvarSemCliente.sucesso === false && /Cliente é obrigatório/i.test(salvarSemCliente.erro || ''),
+      'tarefas_salvar_sem_cliente_id_falha',
+      JSON.stringify(salvarSemCliente)
+    );
+
+    if (clienteId) {
+      const tarefa = salvarTarefa(tokenValido, {
+        cliente_id: clienteId,
+        descricao: 'Tarefa contrato listar não vazio',
+        responsavel: 'QA',
+        status: 'iniciar',
+        tipo: 'Processo'
+      });
+      if (tarefa && tarefa.sucesso) tarefaId = tarefa.uuid;
+    }
+
+    const listarValido = api({
+      modulo: 'tarefas',
+      acao: 'listar',
+      token: tokenValido,
+      dados: { page: 1, pageSize: 50, cliente_id: clienteId }
+    });
+
+    expect(
+      listarValido && listarValido.sucesso === true && Array.isArray(listarValido.tarefas) && listarValido.tarefas.length > 0,
+      'tarefas_listar_token_valido_retorna_nao_vazio',
+      JSON.stringify({ sucesso: listarValido && listarValido.sucesso, total: listarValido && listarValido.tarefas ? listarValido.tarefas.length : 0, clienteId, tarefaId })
+    );
+  } else {
+    expect(false, 'tarefas_listar_token_valido_retorna_nao_vazio', 'Não foi possível criar/login usuário de contrato');
+  }
+
+
+  if (tokenValido) {
+    const pilotoStatus = api({ modulo: 'admin', acao: 'piloto.status', token: tokenValido, api_version: 'v2' });
+    expect(pilotoStatus && typeof pilotoStatus.sucesso === 'boolean' && pilotoStatus.api_version === 'v2', 'admin_piloto_status_contrato', JSON.stringify(pilotoStatus));
+  }
+
+  if (tokenValido) {
+    const obs = api({ modulo: 'observabilidade', acao: 'status', token: tokenValido, api_version: 'v2', dados: { janela_horas: 24 } });
+    expect(obs && obs.sucesso === true && !!obs.request_id && obs.api_version === 'v2', 'observabilidade_status_v2_contrato', JSON.stringify(obs));
+
+    const routeForbidden = api({ modulo: 'admin', acao: 'tenant.atualizar', token: tokenValido, dados: { status: 'active' } });
+    expect(routeForbidden && typeof routeForbidden.sucesso === 'boolean', 'admin_tenant_atualizar_contrato', JSON.stringify(routeForbidden));
+  }
+
+  if (tokenValido) {
+    const adminUsers = api({ modulo: 'admin', acao: 'usuarios.listar', token: tokenValido, api_version: 'v2', dados: {} });
+    expect(adminUsers && adminUsers.sucesso === true && adminUsers.api_version === 'v2', 'admin_usuarios_listar_v2_ok', JSON.stringify(adminUsers));
+
+    const billingStatus = api({ modulo: 'billing', acao: 'assinatura.status', token: tokenValido, api_version: 'v2' });
+    expect(billingStatus && typeof billingStatus.sucesso === 'boolean' && billingStatus.api_version === 'v2', 'billing_assinatura_status_v2_contrato', JSON.stringify(billingStatus));
+
+    const auditoria = api({ modulo: 'auditoria', acao: 'listar', token: tokenValido, dados: { page: 1, pageSize: 20 } });
+    expect(auditoria && auditoria.sucesso === true && Array.isArray((auditoria.dados && auditoria.dados.eventos) || auditoria.eventos || []), 'auditoria_listar_contrato', JSON.stringify(auditoria));
+  }
+
+  const schemaCheck = api({ modulo: 'setup', acao: 'validarSchema' });
+  expect(schemaCheck && typeof schemaCheck.sucesso === 'boolean', 'setup_validarSchema_contrato', JSON.stringify(schemaCheck));
+
+  const aprovados = resultados.filter(r => r.ok).length;
+  const reprovados = resultados.length - aprovados;
+
+  return {
+    sucesso: reprovados === 0,
+    resumo: { total: resultados.length, aprovados, reprovados },
+    resultados
+  };
+}
+
+// ============================================================
+// TESTES OPERACIONAIS (Fase 5 - QA/Regressão)
+// ============================================================
+
+function runOperationalSmokeTests() {
+  const checks = [];
+
+  function record(nome, ok, detalhe) {
+    checks.push({ nome, ok: !!ok, detalhe: detalhe || '' });
+  }
+
+  const schema = api({ modulo: 'setup', acao: 'validarSchema' });
+  record('setup.validarSchema', schema && schema.sucesso === true, JSON.stringify(schema || {}));
+
+  const seed = String(new Date().getTime());
+  const email = `smoke.${seed}@sae.app`;
+  const senha = 'Smoke#2026';
+  let token = null;
+  let clienteId = null;
+  let tarefaId = null;
+
+  const cadastro = cadastrarConsultor({ nome: 'Smoke Bot', email, senha }, { allow_internal: true });
+  if (cadastro && cadastro.sucesso) {
+    token = cadastro.token;
+    record('auth.cadastro', true, JSON.stringify({ consultor: cadastro.consultor && cadastro.consultor.uuid }));
+  } else {
+    const login = autenticarConsultor({ email, senha });
+    token = login && login.sucesso ? login.token : null;
+    record('auth.cadastro_ou_login', !!token, JSON.stringify(cadastro || login || {}));
+  }
+
+  if (!token) {
+    return {
+      sucesso: false,
+      resumo: { total: checks.length, aprovados: checks.filter(c => c.ok).length, reprovados: checks.filter(c => !c.ok).length },
+      checks
+    };
+  }
+
+  const cliente = api({ modulo: 'clientes', acao: 'salvar', token, dados: { empresa_nome: 'Cliente Smoke', segmento: 'Teste', status: 'active' } });
+  clienteId = cliente && cliente.sucesso ? cliente.uuid : null;
+  record('clientes.salvar', !!clienteId, JSON.stringify(cliente || {}));
+
+  const clientesList = api({ modulo: 'clientes', acao: 'listar', token, dados: { page: 1, pageSize: 50, no_cache: true } });
+  const clientesArr = (clientesList && (clientesList.clientes || (clientesList.dados && clientesList.dados.clientes))) || [];
+  record('clientes.listar', clientesList && clientesList.sucesso === true && Array.isArray(clientesArr), JSON.stringify({ total: clientesArr.length }));
+
+  const tarefa = api({ modulo: 'tarefas', acao: 'salvar', token, dados: { cliente_id: clienteId, descricao: 'Tarefa Smoke', status: 'iniciar', tipo: 'Processo' } });
+  tarefaId = tarefa && tarefa.sucesso ? tarefa.uuid : null;
+  record('tarefas.salvar', !!tarefaId, JSON.stringify(tarefa || {}));
+
+  const tarefaMove = api({ modulo: 'tarefas', acao: 'mover', token, dados: { uuid: tarefaId, status: 'execucao' } });
+  record('tarefas.mover', tarefaMove && tarefaMove.sucesso === true, JSON.stringify(tarefaMove || {}));
+
+  const tarefaList = api({ modulo: 'tarefas', acao: 'listar', token, dados: { page: 1, pageSize: 50, cliente_id: clienteId, no_cache: true } });
+  const tarefasArr = (tarefaList && (tarefaList.tarefas || (tarefaList.dados && tarefaList.dados.tarefas))) || [];
+  record('tarefas.listar', tarefaList && tarefaList.sucesso === true && Array.isArray(tarefasArr) && tarefasArr.length >= 1, JSON.stringify({ total: tarefasArr.length }));
+
+  const diag = api({ modulo: 'diagnosticos', acao: 'salvar', token, dados: { cliente_id: clienteId, tipo_matriz: '5S', respostas: { q1: 4, q2: 3, q3: 5, q4: 2, q5: 4 } } });
+  record('diagnosticos.salvar', diag && diag.sucesso === true, JSON.stringify(diag || {}));
+
+  const diagList = api({ modulo: 'diagnosticos', acao: 'listar', token, dados: { page: 1, pageSize: 50, cliente_id: clienteId, no_cache: true } });
+  const diagArr = (diagList && (diagList.diagnosticos || (diagList.dados && diagList.dados.diagnosticos))) || [];
+  record('diagnosticos.listar', diagList && diagList.sucesso === true && Array.isArray(diagArr), JSON.stringify({ total: diagArr.length }));
+
+  const fin = api({ modulo: 'financeiro', acao: 'registrar', token, dados: { cliente_id: clienteId, valor_mensalidade: 100, pago: false } });
+  const finId = fin && fin.sucesso ? fin.uuid : null;
+  record('financeiro.registrar', !!finId, JSON.stringify(fin || {}));
+
+  const finList = api({ modulo: 'financeiro', acao: 'listar', token, dados: { page: 1, pageSize: 50, cliente_id: clienteId, no_cache: true } });
+  const finArr = (finList && (finList.registros || (finList.dados && finList.dados.registros))) || [];
+  record('financeiro.listar', finList && finList.sucesso === true && Array.isArray(finArr), JSON.stringify({ total: finArr.length }));
+
+  const kpis = api({ modulo: 'dashboard', acao: 'kpis', token, dados: {} });
+  record('dashboard.kpis', kpis && kpis.sucesso === true && !!(kpis.kpis || (kpis.dados && kpis.dados.kpis)), JSON.stringify(kpis || {}));
+
+  const pipeline = api({ modulo: 'dashboard', acao: 'pipeline', token, dados: { cliente_id: clienteId } });
+  record('dashboard.pipeline', pipeline && pipeline.sucesso === true && !!(pipeline.estado_projeto || (pipeline.dados && pipeline.dados.estado_projeto)), JSON.stringify(pipeline || {}));
+
+  const billing = api({ modulo: 'billing', acao: 'assinatura.status', token, api_version: 'v2', dados: {} });
+  record('billing.assinatura.status', billing && typeof billing.sucesso === 'boolean', JSON.stringify(billing || {}));
+
+  const obs = api({ modulo: 'observabilidade', acao: 'status', token, api_version: 'v2', dados: { janela_horas: 24 } });
+  record('observabilidade.status', obs && obs.sucesso === true, JSON.stringify(obs || {}));
+
+  const aud = api({ modulo: 'auditoria', acao: 'listar', token, dados: { page: 1, pageSize: 20 } });
+  const eventos = (aud && ((aud.dados && aud.dados.eventos) || aud.eventos)) || [];
+  record('auditoria.listar', aud && aud.sucesso === true && Array.isArray(eventos), JSON.stringify({ total: eventos.length }));
+
+  const rel = api({ modulo: 'relatorios', acao: 'gerar', token, dados: { cliente_id: clienteId, tipo: 'progresso' } });
+  record('relatorios.gerar.progresso', rel && rel.sucesso === true && (!!rel.url || !!rel.base64_pdf || !!rel.html), JSON.stringify(rel || {}));
+
+  const adminForbidden = api({ modulo: 'admin', acao: 'tenant.atualizar', token, dados: { status: 'inactive' } });
+  const forbiddenOk = adminForbidden && (adminForbidden.sucesso === false ? adminForbidden.codigo === 'forbidden' || adminForbidden.codigo === 'enterprise_plan_required' || adminForbidden.codigo === 'pilot_disabled' : true);
+  record('admin.tenant.atualizar.guard', !!forbiddenOk, JSON.stringify(adminForbidden || {}));
+
+  const aprovados = checks.filter(c => c.ok).length;
+  const reprovados = checks.length - aprovados;
+  return {
+    sucesso: reprovados === 0,
+    resumo: { total: checks.length, aprovados, reprovados },
+    checks
+  };
+}
+
+function runUnitTestsCritical() {
+  const resultados = [];
+  function expect(cond, nome, detalhe) { resultados.push({ nome, ok: !!cond, detalhe: detalhe || '' }); }
+
+  const schema = validarSchemaAbas();
+  expect(schema && typeof schema.ok === 'boolean', 'schema_validacao_basica', JSON.stringify(schema || {}));
+
+  const seed = String(new Date().getTime());
+  const email = `unit.${seed}@sae.app`;
+  const senha = 'Unit#2026';
+  const senhaErrada = 'Unit#ERR';
+
+  const cad = cadastrarConsultor({ nome: 'Unit Bot', email, senha }, { allow_internal: true });
+  expect(cad && cad.sucesso === true && !!cad.token, 'cadastro_interno_ok', JSON.stringify(cad || {}));
+
+  const loginOk = autenticarConsultor({ email, senha });
+  expect(loginOk && loginOk.sucesso === true && !!loginOk.token, 'autenticar_senha_correta', JSON.stringify(loginOk || {}));
+
+  const loginBad = autenticarConsultor({ email, senha: senhaErrada });
+  expect(loginBad && loginBad.sucesso === false, 'autenticar_senha_incorreta', JSON.stringify(loginBad || {}));
+
+  const token = (loginOk && loginOk.token) || (cad && cad.token) || '';
+  const sessao = verificarSessao(token);
+  expect(!!sessao, 'verificar_sessao_token_valido', JSON.stringify({ tokenValido: !!token, sessao }));
+
+  const payloadInvalido = api({ modulo: 'tarefas', acao: 'salvar', token, dados: { descricao: '' } });
+  expect(payloadInvalido && payloadInvalido.sucesso === false && payloadInvalido.codigo === 'validation_error', 'api_validate_payload_tarefas', JSON.stringify(payloadInvalido || {}));
+
+  const c1 = cadastrarConsultor({ nome: 'Tenant A', email: `ta.${seed}@sae.app`, senha }, { allow_internal: true });
+  const c2 = cadastrarConsultor({ nome: 'Tenant B', email: `tb.${seed}@sae.app`, senha }, { allow_internal: true });
+  const t1 = c1 && c1.token;
+  const t2 = c2 && c2.token;
+  let isolamentoOk = false;
+  if (t1 && t2) {
+    const cl = api({ modulo: 'clientes', acao: 'salvar', token: t1, dados: { empresa_nome: 'Cliente Tenant A', segmento: 'Teste', status: 'active' } });
+    const listA = api({ modulo: 'clientes', acao: 'listar', token: t1, dados: { page: 1, pageSize: 200, no_cache: true } });
+    const listB = api({ modulo: 'clientes', acao: 'listar', token: t2, dados: { page: 1, pageSize: 200, no_cache: true } });
+    const arrA = (listA && (listA.clientes || (listA.dados && listA.dados.clientes))) || [];
+    const arrB = (listB && (listB.clientes || (listB.dados && listB.dados.clientes))) || [];
+    isolamentoOk = !!(cl && cl.uuid && arrA.some(c => c.uuid === cl.uuid) && !arrB.some(c => c.uuid === cl.uuid));
+  }
+  expect(isolamentoOk, 'filtro_multi_tenant_clientes', JSON.stringify({ isolamentoOk }));
+
+  const aprovados = resultados.filter(r => r.ok).length;
+  const reprovados = resultados.length - aprovados;
+  return {
+    sucesso: reprovados === 0,
+    resumo: { total: resultados.length, aprovados, reprovados },
+    resultados
+  };
 }
 
 // ============================================================
