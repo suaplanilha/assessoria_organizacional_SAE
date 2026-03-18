@@ -37,7 +37,7 @@ const SCHEMA_VERSION = '2.0.0';
 
 const SHEET_SCHEMAS = {
   tb_empresas: [
-    'tenant_id', 'nome', 'plano', 'status', 'max_usuarios', 'max_clientes', 'created_at', 'updated_at'
+    'tenant_id', 'nome', 'plano', 'status', 'max_usuarios', 'max_clientes', 'max_projetos', 'created_at', 'updated_at'
   ],
   tb_permissoes: [
     'perfil', 'recurso', 'permitido', 'created_at'
@@ -85,6 +85,7 @@ const RBAC_PERMISSOES_PADRAO = {
     'financeiro.*',
     'dashboard.kpis',
     'dashboard.pipeline',
+    'onboarding.status',
     'relatorios.gerar',
     'portal.link',
     'auditoria.listar',
@@ -93,7 +94,9 @@ const RBAC_PERMISSOES_PADRAO = {
     'admin.usuarios.listar',
     'billing.assinatura.obter',
     'billing.assinatura.alterarPlano',
-    'billing.assinatura.status'
+    'billing.assinatura.status',
+    'billing.assinatura.marcarInadimplente',
+    'billing.assinatura.regularizar'
   ],
   analyst: [
     'auth.verificar',
@@ -103,6 +106,7 @@ const RBAC_PERMISSOES_PADRAO = {
     'financeiro.listar',
     'dashboard.kpis',
     'dashboard.pipeline',
+    'onboarding.status',
     'relatorios.gerar',
     'portal.link',
     'auditoria.listar',
@@ -118,6 +122,7 @@ const RBAC_PERMISSOES_PADRAO = {
     'financeiro.listar',
     'dashboard.kpis',
     'dashboard.pipeline',
+    'onboarding.status',
     'relatorios.gerar',
     'portal.link'
   ]
@@ -290,6 +295,11 @@ function montarLinhaPorHeaders(headers, payload = {}) {
   return headers.map(function(h) {
     return payload[h] !== undefined ? payload[h] : '';
   });
+}
+
+function appendRowByHeaders(sheet, payload = {}) {
+  const headers = getSheetSnapshot(sheet).headers;
+  sheet.appendRow(montarLinhaPorHeaders(headers, payload));
 }
 
 function normalizarAbaSessoes(opts = {}) {
@@ -759,16 +769,17 @@ function garantirTenantParaConsultor(consultorId, nomeTenant, plano) {
   const sheet = sheetInfo.sheet;
   const tenantId = gerarUUID();
   const agora = new Date().toISOString();
-  sheet.appendRow([
-    tenantId,
-    nomeTenant || ('Tenant ' + consultorId),
-    plano || 'Pro',
-    'active',
-    5,
-    200,
-    agora,
-    agora
-  ]);
+  appendRowByHeaders(sheet, {
+    tenant_id: tenantId,
+    nome: nomeTenant || ('Tenant ' + consultorId),
+    plano: plano || 'Pro',
+    status: 'active',
+    max_usuarios: 5,
+    max_clientes: 200,
+    max_projetos: 200,
+    created_at: agora,
+    updated_at: agora
+  });
 
   const consultoresInfo = getSheetOrFail('consultores');
   if (!consultoresInfo.error) {
@@ -976,16 +987,17 @@ function cadastrarConsultor(dados, opts = {}) {
 
   const empresasInfo = getSheetOrFail('tb_empresas');
   if (!empresasInfo.error) {
-    empresasInfo.sheet.appendRow([
-      tenantId,
-      nome + ' Org',
-      'Pro',
-      'active',
-      5,
-      200,
-      agora,
-      agora
-    ]);
+    appendRowByHeaders(empresasInfo.sheet, {
+      tenant_id: tenantId,
+      nome: nome + ' Org',
+      plano: 'Pro',
+      status: 'active',
+      max_usuarios: 5,
+      max_clientes: 200,
+      max_projetos: 200,
+      created_at: agora,
+      updated_at: agora
+    });
   }
 
   const token = criarSessao(uuid, emailHash, { tenant_id: tenantId, perfil: 'owner' });
@@ -1382,6 +1394,15 @@ function salvarCliente(token, dadosCliente) {
     invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid: dadosCliente.uuid, acao: 'atualizado' };
   } else {
+    const assinatura = billingAssinaturaObterFromTenantId(tenantId);
+    const limiteClientes = assinatura && assinatura.limites ? toNumberSafe(assinatura.limites.max_clientes, 0) : 0;
+    if (limiteClientes > 0) {
+      const ativos = sheetParaObjetos(sheet, { consultor_id: consultorId, tenant_id: tenantId }).filter(c => String(c.status || '').toLowerCase() !== 'deleted').length;
+      if (ativos >= limiteClientes) {
+        return falhaCodigo('plan_limit_reached', 'Limite de clientes do plano atingido.', { contexto: { limite: limiteClientes, recurso: 'clientes' } });
+      }
+    }
+
     // INSERT
     const uuid = gerarUUID();
     sheet.appendRow([
@@ -1690,6 +1711,17 @@ function salvarTarefa(token, dados) {
     invalidateConsultorCache(consultorId);
     return { sucesso: true, uuid: dados.uuid, acao: 'atualizado' };
   } else {
+    const assinatura = billingAssinaturaObterFromTenantId(tenantId);
+    const limiteProjetos = assinatura && assinatura.limites ? toNumberSafe(assinatura.limites.max_projetos, 0) : 0;
+    if (limiteProjetos > 0) {
+      const totalProjetos = sheetParaObjetos(sheet, { consultor_id: consultorId, tenant_id: tenantId })
+        .filter(function(t) { return normalizeStatusTarefa(t.status) !== 'deleted'; })
+        .length;
+      if (totalProjetos >= limiteProjetos) {
+        return falhaCodigo('plan_limit_reached', 'Limite de projetos/tarefas do plano atingido.', { contexto: { limite: limiteProjetos, recurso: 'projetos' } });
+      }
+    }
+
     const uuid = gerarUUID();
     sheet.appendRow([
       uuid,
@@ -2321,6 +2353,48 @@ function getPipelineStatus(token, opts = {}) {
   return sucesso({ resumo_estados: resumo, total_clientes: Object.keys(estados).length });
 }
 
+function onboardingStatus(token) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
+  const contexto = obterContextoSessao(token);
+  const tenantId = normalizeIdSafe(contexto && contexto.tenant_id);
+
+  const filtros = { consultor_id: consultorId };
+  if (tenantId) filtros.tenant_id = tenantId;
+
+  const clientesInfo = getSheetOrFail('clientes');
+  const diagInfo = getSheetOrFail('diagnosticos');
+  const tarefasInfo = getSheetOrFail('tarefas_5w2h');
+  const finInfo = getSheetOrFail('financeiro');
+  if (clientesInfo.error || diagInfo.error || tarefasInfo.error || finInfo.error) return falhaCodigo('schema_error', 'Schema incompleto para onboarding.');
+
+  const clientes = sheetParaObjetos(clientesInfo.sheet, filtros).filter(c => String(c.status || '').toLowerCase() !== 'deleted');
+  const diags = sheetParaObjetos(diagInfo.sheet, filtros);
+  const tarefas = sheetParaObjetos(tarefasInfo.sheet, filtros).filter(t => normalizeStatusTarefa(t.status) !== 'deleted');
+  const fin = sheetParaObjetos(finInfo.sheet, filtros);
+  const relatorioPronto = clientes.length > 0 && (diags.length > 0 || tarefas.length > 0);
+
+  const steps = [
+    { id: 'cliente', label: 'Cadastrar 1º cliente', done: clientes.length > 0 },
+    { id: 'diagnostico', label: 'Salvar 1º diagnóstico', done: diags.length > 0 },
+    { id: 'projeto', label: 'Criar 1ª tarefa 5W2H', done: tarefas.length > 0 },
+    { id: 'financeiro', label: 'Registrar 1º lançamento financeiro', done: fin.length > 0 },
+    { id: 'relatorio', label: 'Gerar 1º relatório', done: relatorioPronto }
+  ];
+  const done = steps.filter(s => s.done).length;
+  const pct = Math.round((done / steps.length) * 100);
+
+  return sucesso({
+    onboarding: {
+      steps,
+      done,
+      total: steps.length,
+      percent: pct,
+      ready_under_10min: pct >= 80
+    }
+  });
+}
+
 
 function adminObterTenant(token) {
   const contexto = obterContextoSessao(token);
@@ -2397,7 +2471,7 @@ function adminAtualizarTenant(token, dados = {}) {
   if (!linha) return falhaCodigo('tenant_not_found', 'Tenant não encontrado.');
 
   const headers = linha.headers;
-  const permitidos = ['nome', 'plano', 'status', 'max_usuarios', 'max_clientes'];
+  const permitidos = ['nome', 'plano', 'status', 'max_usuarios', 'max_clientes', 'max_projetos'];
   permitidos.forEach(function(campo) {
     if (dados[campo] !== undefined) {
       const idx = headers.indexOf(campo);
@@ -2476,7 +2550,8 @@ function billingAssinaturaObterFromTenantId(tenantId) {
     status: tenant.status || 'active',
     limites: {
       max_usuarios: toNumberSafe(tenant.max_usuarios, 0),
-      max_clientes: toNumberSafe(tenant.max_clientes, 0)
+      max_clientes: toNumberSafe(tenant.max_clientes, 0),
+      max_projetos: toNumberSafe(tenant.max_projetos, toNumberSafe(tenant.max_clientes, 0))
     }
   };
 }
@@ -2497,8 +2572,8 @@ function billingAssinaturaAlterarPlano(token, dados = {}) {
   if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
 
   const limitesPorPlano = {
-    Pro: { max_usuarios: 5, max_clientes: 200 },
-    Enterprise: { max_usuarios: 100, max_clientes: 5000 }
+    Pro: { max_usuarios: 5, max_clientes: 200, max_projetos: 200 },
+    Enterprise: { max_usuarios: 100, max_clientes: 5000, max_projetos: 10000 }
   };
   const limites = limitesPorPlano[novoPlano] || limitesPorPlano.Pro;
 
@@ -2506,8 +2581,21 @@ function billingAssinaturaAlterarPlano(token, dados = {}) {
     plano: novoPlano,
     max_usuarios: limites.max_usuarios,
     max_clientes: limites.max_clientes,
+    max_projetos: limites.max_projetos,
     status: 'active'
   });
+}
+
+function billingAssinaturaMarcarInadimplente(token) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+  return adminAtualizarTenant(token, { status: 'suspended' });
+}
+
+function billingAssinaturaRegularizar(token) {
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.tenant_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+  return adminAtualizarTenant(token, { status: 'active' });
 }
 
 function billingAssinaturaStatus(token) {
@@ -2601,6 +2689,21 @@ function observabilidadeStatus(token, opts = {}) {
   });
 }
 
+function shouldAuditCriticalAction(modulo, acao) {
+  const key = String(modulo || '') + '.' + String(acao || '');
+  return [
+    'auth.login',
+    'setup.executar',
+    'setup.resetEstrutural',
+    'setup.migrarSchema',
+    'clientes.excluir',
+    'financeiro.registrar',
+    'billing.assinatura.alterarPlano',
+    'billing.assinatura.marcarInadimplente',
+    'billing.assinatura.regularizar'
+  ].indexOf(key) >= 0;
+}
+
 // ============================================================
 // INTEGRAÇÃO FRONTEND-BACKEND via google.script.run
 // ============================================================
@@ -2652,6 +2755,9 @@ function api(params) {
       kpis: () => getDashboardKPIs(token),
       pipeline: () => getPipelineStatus(token, dadosReq || {}),
     },
+    onboarding: {
+      status: () => onboardingStatus(token)
+    },
     relatorios: {
       gerar: () => gerarRelatorio(token, dadosReq && dadosReq.cliente_id, dadosReq && dadosReq.tipo, dadosReq || {}),
     },
@@ -2679,7 +2785,9 @@ function api(params) {
     billing: {
       'assinatura.obter': () => billingAssinaturaObter(token),
       'assinatura.alterarPlano': () => billingAssinaturaAlterarPlano(token, dadosReq || {}),
-      'assinatura.status': () => billingAssinaturaStatus(token)
+      'assinatura.status': () => billingAssinaturaStatus(token),
+      'assinatura.marcarInadimplente': () => billingAssinaturaMarcarInadimplente(token),
+      'assinatura.regularizar': () => billingAssinaturaRegularizar(token)
     },
     auditoria: {
       listar: () => auditoriaListar(token, dadosReq || {})
@@ -2752,22 +2860,23 @@ function api(params) {
       resposta = sucesso(raw || {});
     }
 
-    if (!publico && contexto) {
-      const acaoMutante = ['salvar', 'excluir', 'mover', 'registrar', 'alterarPlano', 'atualizar', 'executar'].some(function(k) { return String(acao || '').indexOf(k) >= 0; });
-      if (acaoMutante || modulo === 'admin' || modulo === 'billing') {
-        registrarAuditoria({
-          request_id: requestId,
-          tenant_id: contexto.tenant_id,
-          consultor_id: contexto.consultor_id,
-          perfil: contexto.perfil,
-          modulo,
-          acao,
-          sucesso: resposta && resposta.sucesso === true,
-          codigo: (resposta && resposta.codigo) || '',
-          mensagem: (resposta && resposta.erro) || 'ok',
-          payload: dadosReq || {}
-        });
-      }
+    const acaoMutante = ['salvar', 'excluir', 'mover', 'registrar', 'alterarPlano', 'atualizar', 'executar'].some(function(k) { return String(acao || '').indexOf(k) >= 0; });
+    const criticalAudit = shouldAuditCriticalAction(modulo, acao);
+    if ((acaoMutante || modulo === 'admin' || modulo === 'billing' || criticalAudit) && (contexto || criticalAudit)) {
+      const auditConsultor = (contexto && contexto.consultor_id) || (raw && raw.consultor && raw.consultor.uuid) || '';
+      const auditTenant = (contexto && contexto.tenant_id) || (raw && raw.consultor && raw.consultor.tenant_id) || '';
+      registrarAuditoria({
+        request_id: requestId,
+        tenant_id: auditTenant,
+        consultor_id: auditConsultor,
+        perfil: (contexto && contexto.perfil) || '',
+        modulo,
+        acao,
+        sucesso: resposta && resposta.sucesso === true,
+        codigo: (resposta && resposta.codigo) || '',
+        mensagem: (resposta && resposta.erro) || 'ok',
+        payload: dadosReq || {}
+      });
     }
 
     const durationMs = Date.now() - startedAt;

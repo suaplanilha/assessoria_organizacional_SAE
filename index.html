@@ -901,6 +901,22 @@ tr:last-child td { border-bottom: none; }
             </div>
           </div>
 
+          <div class="card" style="margin-top:14px;" v-if="onboardingInfo && onboardingInfo.total">
+            <div class="card-header">
+              <div class="card-title"><span class="card-icon">🧭</span> Onboarding Guiado</div>
+              <span style="font-size:11px;color:var(--text-muted);">{{ onboardingInfo.done }}/{{ onboardingInfo.total }} concluídos</span>
+            </div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">Meta: ativação completa em até 10 minutos.</div>
+            <div class="progress" style="height:8px;background:rgba(255,255,255,0.08);border-radius:8px;overflow:hidden;margin-bottom:12px;">
+              <div :style="{ width: (onboardingInfo.percent || 0) + '%', height:'100%', background:'linear-gradient(90deg,#6366f1,#8b5cf6)' }"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div v-for="s in onboardingInfo.steps" :key="s.id" style="font-size:12px;color:var(--text-secondary);">
+                <span>{{ s.done ? '✅' : '⬜' }}</span> {{ s.label }}
+              </div>
+            </div>
+          </div>
+
           <div class="card">
             <div class="card-header">
               <div class="card-title"><span class="card-icon">🏢</span> Portfólio de Clientes</div>
@@ -1713,6 +1729,7 @@ createApp({
     const adminTenant = ref({});
     const adminUsers = ref([]);
     const billingInfo = ref({ status: 'active', plano: 'Pro', limites: { max_usuarios: 0, max_clientes: 0 } });
+    const onboardingInfo = ref({ steps: [], done: 0, total: 0, percent: 0 });
     const configPlanoSaas = ref('Pro');
     const sessionInvalidHandled = ref(false);
     let refreshTarefasInFlight = null;
@@ -1755,9 +1772,9 @@ createApp({
       const map = {
         owner: ['*'],
         admin: ['*'],
-        manager: ['clientes.*','diagnosticos.*','tarefas.*','financeiro.*','dashboard.kpis','dashboard.pipeline','relatorios.gerar','portal.link','auditoria.listar','admin.tenant.obter','admin.tenant.atualizar','admin.usuarios.listar','billing.assinatura.obter','billing.assinatura.alterarPlano','billing.assinatura.status'],
-        analyst: ['clientes.listar','diagnosticos.*','tarefas.*','financeiro.listar','dashboard.kpis','dashboard.pipeline','relatorios.gerar','portal.link','admin.usuarios.listar','billing.assinatura.obter','billing.assinatura.status'],
-        viewer: ['clientes.listar','diagnosticos.listar','tarefas.listar','financeiro.listar','dashboard.kpis','dashboard.pipeline','relatorios.gerar','portal.link','billing.assinatura.obter']
+        manager: ['clientes.*','diagnosticos.*','tarefas.*','financeiro.*','dashboard.kpis','dashboard.pipeline','onboarding.status','relatorios.gerar','portal.link','auditoria.listar','admin.tenant.obter','admin.tenant.atualizar','admin.usuarios.listar','billing.assinatura.obter','billing.assinatura.alterarPlano','billing.assinatura.status'],
+        analyst: ['clientes.listar','diagnosticos.*','tarefas.*','financeiro.listar','dashboard.kpis','dashboard.pipeline','onboarding.status','relatorios.gerar','portal.link','admin.usuarios.listar','billing.assinatura.obter','billing.assinatura.status'],
+        viewer: ['clientes.listar','diagnosticos.listar','tarefas.listar','financeiro.listar','dashboard.kpis','dashboard.pipeline','onboarding.status','relatorios.gerar','portal.link','billing.assinatura.obter']
       };
       const recursos = map[perfil] || map.viewer;
       if (recurso === 'auth.verificar') return true;
