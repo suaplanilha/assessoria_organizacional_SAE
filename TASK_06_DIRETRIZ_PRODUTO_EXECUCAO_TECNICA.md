@@ -93,10 +93,10 @@ Transformar o estágio atual do projeto em um plano executável de evolução, c
 **Meta:** garantir jornada completa consultor -> cliente -> entrega.
 
 ### Entregáveis obrigatórios
-- [ ] Pipeline operacional: Cliente -> Diagnóstico -> Plano 5W2H -> Execução -> Financeiro -> Relatório.
-- [ ] Estados de projeto claros (descoberta, planejamento, execução, validação, encerrado).
-- [ ] Relatórios com dados consistentes por cliente/período.
-- [ ] Portal do cliente com visão de progresso e evidências.
+- [x] Pipeline operacional: Cliente -> Diagnóstico -> Plano 5W2H -> Execução -> Financeiro -> Relatório.
+- [x] Estados de projeto claros (descoberta, planejamento, execução, validação, encerrado).
+- [x] Relatórios com dados consistentes por cliente/período.
+- [x] Portal do cliente com visão de progresso e evidências.
 
 ### Critério de saída da Sprint 2
 - Jornada ponta a ponta executável sem passos manuais fora do sistema.

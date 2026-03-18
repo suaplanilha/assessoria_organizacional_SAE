@@ -171,6 +171,11 @@ google.script.run
   .withSuccessHandler(res => renderKPIs(res.kpis))
   .api({ modulo: 'dashboard', acao: 'kpis', token });
 
+// Estado de pipeline por cliente
+google.script.run
+  .withSuccessHandler(res => console.log(res.estado_projeto || (res.dados && res.dados.estado_projeto)))
+  .api({ modulo: 'dashboard', acao: 'pipeline', token, dados: { cliente_id } });
+
 // Listar Clientes
 google.script.run
   .withSuccessHandler(res => clientes.value = res.clientes)

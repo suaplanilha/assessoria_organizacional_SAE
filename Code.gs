@@ -84,6 +84,7 @@ const RBAC_PERMISSOES_PADRAO = {
     'tarefas.*',
     'financeiro.*',
     'dashboard.kpis',
+    'dashboard.pipeline',
     'relatorios.gerar',
     'portal.link',
     'auditoria.listar',
@@ -101,6 +102,7 @@ const RBAC_PERMISSOES_PADRAO = {
     'tarefas.*',
     'financeiro.listar',
     'dashboard.kpis',
+    'dashboard.pipeline',
     'relatorios.gerar',
     'portal.link',
     'auditoria.listar',
@@ -115,6 +117,7 @@ const RBAC_PERMISSOES_PADRAO = {
     'tarefas.listar',
     'financeiro.listar',
     'dashboard.kpis',
+    'dashboard.pipeline',
     'relatorios.gerar',
     'portal.link'
   ]
@@ -220,6 +223,10 @@ function validatePayload(modulo, acao, dados = {}) {
     const tipos = ['executivo', 'progresso', 'diagnostico'];
     if (!normalizeIdSafe(d.cliente_id)) return fail('Cliente é obrigatório para gerar relatório.', { campo: 'cliente_id' });
     if (d.tipo && !tipos.includes(String(d.tipo))) return fail('Tipo de relatório inválido.', { campo: 'tipo', validos: tipos });
+    const p = parsePeriodo(d);
+    if (d.periodo_inicio && !p.inicio) return fail('Período inicial inválido.', { campo: 'periodo_inicio' });
+    if (d.periodo_fim && !p.fim) return fail('Período final inválido.', { campo: 'periodo_fim' });
+    if (p.inicio && p.fim && p.inicio > p.fim) return fail('Período inválido: início maior que fim.', { campo: 'periodo' });
   }
   if (m === 'billing' && a === 'assinatura.alterarPlano') {
     if (!['Pro', 'Enterprise'].includes(String(d.plano || ''))) return fail('Plano inválido. Use Pro ou Enterprise.', { campo: 'plano' });
@@ -432,6 +439,26 @@ function parsePaginacao(opts = {}) {
   const page = Math.max(1, parseInt(opts.page, 10) || 1);
   const pageSize = Math.min(200, Math.max(1, parseInt(opts.pageSize, 10) || 50));
   return { page, pageSize, offset: (page - 1) * pageSize };
+}
+
+function parsePeriodo(opts = {}) {
+  const ini = String(opts.periodo_inicio || opts.inicio || '').trim();
+  const fim = String(opts.periodo_fim || opts.fim || '').trim();
+  const di = ini ? new Date(ini) : null;
+  const df = fim ? new Date(fim) : null;
+  return {
+    inicio: di && !Number.isNaN(di.getTime()) ? di : null,
+    fim: df && !Number.isNaN(df.getTime()) ? df : null
+  };
+}
+
+function noPeriodo(isoDate, periodo) {
+  if (!periodo || (!periodo.inicio && !periodo.fim)) return true;
+  const d = new Date(isoDate || '');
+  if (Number.isNaN(d.getTime())) return true;
+  if (periodo.inicio && d < periodo.inicio) return false;
+  if (periodo.fim && d > periodo.fim) return false;
+  return true;
 }
 
 function normalizeIdSafe(v) {
@@ -1221,6 +1248,12 @@ function listarClientes(token, opts = {}) {
   let clientes = sheetParaObjetos(sheet, filtros)
     .filter(c => c.status !== 'deleted');
 
+  const estados = montarEstadosProjetoClientes(consultorId, contexto && contexto.tenant_id);
+  clientes = clientes.map(function(c) {
+    const e = estados[normalizeIdSafe(c.uuid)] || { estado_projeto: 'descoberta', pipeline: {} };
+    return Object.assign({}, c, { estado_projeto: e.estado_projeto, pipeline: e.pipeline });
+  });
+
   if (query) {
     clientes = clientes.filter(c =>
       String(c.empresa_nome || '').toLowerCase().includes(query) ||
@@ -1241,6 +1274,73 @@ function listarClientes(token, opts = {}) {
   const resposta = { sucesso: true, clientes: itens, paginacao };
   if (!forceFresh) setCacheJSON(cacheKey, resposta, CACHE_TTL_LISTA);
   return resposta;
+}
+
+function calcularEstadoProjeto(p) {
+  const diag = toNumberSafe(p.diagnosticos_total, 0);
+  const tarefas = toNumberSafe(p.tarefas_total, 0);
+  const abertas = toNumberSafe(p.tarefas_abertas, 0);
+  const finTotal = toNumberSafe(p.financeiro_total, 0);
+  const finPend = toNumberSafe(p.financeiro_pendentes, 0);
+
+  if (diag === 0) return 'descoberta';
+  if (diag > 0 && tarefas === 0) return 'planejamento';
+  if (tarefas > 0 && abertas > 0) return 'execucao';
+  if (tarefas > 0 && abertas === 0 && (finTotal === 0 || finPend > 0)) return 'validacao';
+  return 'encerrado';
+}
+
+function montarEstadosProjetoClientes(consultorId, tenantId) {
+  const filtrosBase = { consultor_id: consultorId };
+  if (tenantId) filtrosBase.tenant_id = tenantId;
+
+  const diagInfo = getSheetOrFail('diagnosticos');
+  const tarefasInfo = getSheetOrFail('tarefas_5w2h');
+  const finInfo = getSheetOrFail('financeiro');
+  if (diagInfo.error || tarefasInfo.error || finInfo.error) return {};
+
+  const mapa = {};
+  function ensure(id) {
+    const k = normalizeIdSafe(id);
+    if (!k) return null;
+    if (!mapa[k]) {
+      mapa[k] = {
+        diagnosticos_total: 0,
+        tarefas_total: 0,
+        tarefas_concluidas: 0,
+        tarefas_abertas: 0,
+        financeiro_total: 0,
+        financeiro_pendentes: 0,
+        financeiro_pagos: 0
+      };
+    }
+    return mapa[k];
+  }
+
+  sheetParaObjetos(diagInfo.sheet, filtrosBase).forEach(function(d) {
+    const p = ensure(d.cliente_id); if (!p) return;
+    p.diagnosticos_total += 1;
+  });
+  sheetParaObjetos(tarefasInfo.sheet, filtrosBase).forEach(function(t) {
+    const p = ensure(t.cliente_id); if (!p) return;
+    const st = normalizeStatusTarefa(t.status);
+    if (st === 'deleted') return;
+    p.tarefas_total += 1;
+    if (st === 'concluido') p.tarefas_concluidas += 1;
+    else p.tarefas_abertas += 1;
+  });
+  sheetParaObjetos(finInfo.sheet, filtrosBase).forEach(function(f) {
+    const p = ensure(f.cliente_id); if (!p) return;
+    p.financeiro_total += 1;
+    if (toBooleanSafe(f.pago)) p.financeiro_pagos += 1;
+    else p.financeiro_pendentes += 1;
+  });
+
+  Object.keys(mapa).forEach(function(k) {
+    mapa[k] = { estado_projeto: calcularEstadoProjeto(mapa[k]), pipeline: mapa[k] };
+  });
+
+  return mapa;
 }
 
 /**
@@ -1878,29 +1978,38 @@ function gerarLinkPortalCliente(token, clienteId) {
 /**
  * Busca dados completos de um cliente para o portal
  */
-function getDadosPortalCliente(clienteId) {
+function getDadosPortalCliente(clienteId, opts = {}) {
+  const periodo = parsePeriodo(opts || {});
   const ssClientes = getSpreadsheet().getSheetByName('clientes');
   const clientes = sheetParaObjetos(ssClientes, { uuid: clienteId });
   const cliente = clientes[0];
   if (!cliente) return null;
 
   const ssTarefas = getSpreadsheet().getSheetByName('tarefas_5w2h');
-  const tarefas = sheetParaObjetos(ssTarefas, { cliente_id: clienteId });
+  const tarefas = sheetParaObjetos(ssTarefas, { cliente_id: clienteId })
+    .filter(function(t) { return noPeriodo(t.updated_at || t.created_at, periodo); });
 
   const ssDiag = getSpreadsheet().getSheetByName('diagnosticos');
-  const diagnosticos = sheetParaObjetos(ssDiag, { cliente_id: clienteId });
+  const diagnosticos = sheetParaObjetos(ssDiag, { cliente_id: clienteId })
+    .filter(function(d) { return noPeriodo(d.created_at, periodo); });
 
-  return { cliente, tarefas, diagnosticos };
+  const ssFin = getSpreadsheet().getSheetByName('financeiro');
+  const financeiro = sheetParaObjetos(ssFin, { cliente_id: clienteId })
+    .filter(function(f) { return noPeriodo(f.data_pagamento || f.created_at, periodo); });
+
+  return { cliente, tarefas, diagnosticos, financeiro, periodo };
 }
 
 /**
  * Gera HTML limpo para o portal do cliente
  */
 function gerarHTMLPortalCliente(dados) {
-  const { cliente, tarefas, diagnosticos } = dados;
+  const { cliente, tarefas, diagnosticos, financeiro } = dados;
 
   const concluidas = tarefas.filter(t => t.status === 'concluido').length;
   const progresso = tarefas.length > 0 ? Math.round(concluidas / tarefas.length * 100) : 0;
+  const evidenciasTotal = tarefas.filter(function(t) { return String(t.evidencia || '').trim().length > 0; }).length;
+  const pendenciasFinanceiras = (financeiro || []).filter(function(f) { return !toBooleanSafe(f.pago); }).length;
 
   const tarefasHTML = tarefas.slice(0, 10).map(t => `
     <tr>
@@ -1955,8 +2064,14 @@ function gerarHTMLPortalCliente(dados) {
     <div style="display:flex;justify-content:space-between;margin-top:16px;font-size:12px;color:#64748b;">
       <span>✅ ${concluidas} concluídas</span>
       <span>📋 ${tarefas.length} tarefas total</span>
-      <span>⏳ ${tarefas.length - concluidas} pendentes</span>
+      <span>📎 ${evidenciasTotal} evidências</span>
     </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 10px;font-size:16px;">💰 Financeiro</h3>
+    <div style="font-size:13px;color:#94a3b8;">Registros no período: ${(financeiro || []).length}</div>
+    <div style="font-size:13px;color:#94a3b8;">Pendências: ${pendenciasFinanceiras}</div>
   </div>
 
   <div class="card">
@@ -1984,7 +2099,7 @@ function gerarHTMLPortalCliente(dados) {
  * No frontend: google.script.run.gerarRelatorio(token, clienteId, tipo)
  * O retorno é uma URL de blob ou o HTML para impressão
  */
-function gerarRelatorio(token, clienteId, tipo) {
+function gerarRelatorio(token, clienteId, tipo, opts = {}) {
   const consultorId = verificarSessao(token);
   if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
   if (!normalizeIdSafe(clienteId)) return falhaCodigo('validation_error', 'Cliente é obrigatório para gerar relatório.');
@@ -1994,7 +2109,7 @@ function gerarRelatorio(token, clienteId, tipo) {
     return falhaCodigo('validation_error', 'Tipo de relatório inválido.');
   }
 
-  const dados = getDadosPortalCliente(clienteId);
+  const dados = getDadosPortalCliente(clienteId, opts || {});
   if (!dados) return falhaCodigo('cliente_not_found', 'Cliente não encontrado');
 
   // Gera HTML do relatório baseado no tipo
@@ -2035,6 +2150,10 @@ function gerarRelatorio(token, clienteId, tipo) {
       mime: 'application/pdf',
       nomeArquivo: arquivo.getName(),
       file_name: arquivo.getName(),
+      periodo: {
+        inicio: (dados.periodo && dados.periodo.inicio) ? dados.periodo.inicio.toISOString() : null,
+        fim: (dados.periodo && dados.periodo.fim) ? dados.periodo.fim.toISOString() : null
+      },
       base64_pdf: Utilities.base64Encode(pdfBlob.getBytes())
     };
   } catch (err) {
@@ -2178,6 +2297,28 @@ function getDashboardKPIs(token) {
 
   setCacheJSON(cacheKey, resposta, CACHE_TTL_KPIS);
   return resposta;
+}
+
+function getPipelineStatus(token, opts = {}) {
+  const consultorId = verificarSessao(token);
+  if (!consultorId) return falhaCodigo('session_invalid', 'Sessão inválida');
+  const contexto = obterContextoSessao(token);
+  const clienteId = normalizeIdSafe(opts.cliente_id);
+
+  const estados = montarEstadosProjetoClientes(consultorId, contexto && contexto.tenant_id);
+  if (clienteId) {
+    const alvo = estados[clienteId] || { estado_projeto: 'descoberta', pipeline: {} };
+    return sucesso({ cliente_id: clienteId, estado_projeto: alvo.estado_projeto, pipeline: alvo.pipeline });
+  }
+
+  const resumo = { descoberta: 0, planejamento: 0, execucao: 0, validacao: 0, encerrado: 0 };
+  Object.values(estados).forEach(function(v) {
+    const s = String(v.estado_projeto || 'descoberta');
+    if (resumo[s] === undefined) resumo[s] = 0;
+    resumo[s] += 1;
+  });
+
+  return sucesso({ resumo_estados: resumo, total_clientes: Object.keys(estados).length });
 }
 
 
@@ -2509,9 +2650,10 @@ function api(params) {
     },
     dashboard: {
       kpis: () => getDashboardKPIs(token),
+      pipeline: () => getPipelineStatus(token, dadosReq || {}),
     },
     relatorios: {
-      gerar: () => gerarRelatorio(token, dadosReq && dadosReq.cliente_id, dadosReq && dadosReq.tipo),
+      gerar: () => gerarRelatorio(token, dadosReq && dadosReq.cliente_id, dadosReq && dadosReq.tipo, dadosReq || {}),
     },
     portal: {
       link: () => gerarLinkPortalCliente(token, dadosReq && dadosReq.cliente_id),
@@ -2859,6 +3001,9 @@ function runOperationalSmokeTests() {
   const kpis = api({ modulo: 'dashboard', acao: 'kpis', token, dados: {} });
   record('dashboard.kpis', kpis && kpis.sucesso === true && !!(kpis.kpis || (kpis.dados && kpis.dados.kpis)), JSON.stringify(kpis || {}));
 
+  const pipeline = api({ modulo: 'dashboard', acao: 'pipeline', token, dados: { cliente_id: clienteId } });
+  record('dashboard.pipeline', pipeline && pipeline.sucesso === true && !!(pipeline.estado_projeto || (pipeline.dados && pipeline.dados.estado_projeto)), JSON.stringify(pipeline || {}));
+
   const billing = api({ modulo: 'billing', acao: 'assinatura.status', token, api_version: 'v2', dados: {} });
   record('billing.assinatura.status', billing && typeof billing.sucesso === 'boolean', JSON.stringify(billing || {}));
 
@@ -2868,6 +3013,9 @@ function runOperationalSmokeTests() {
   const aud = api({ modulo: 'auditoria', acao: 'listar', token, dados: { page: 1, pageSize: 20 } });
   const eventos = (aud && ((aud.dados && aud.dados.eventos) || aud.eventos)) || [];
   record('auditoria.listar', aud && aud.sucesso === true && Array.isArray(eventos), JSON.stringify({ total: eventos.length }));
+
+  const rel = api({ modulo: 'relatorios', acao: 'gerar', token, dados: { cliente_id: clienteId, tipo: 'progresso' } });
+  record('relatorios.gerar.progresso', rel && rel.sucesso === true && (!!rel.url || !!rel.base64_pdf || !!rel.html), JSON.stringify(rel || {}));
 
   const adminForbidden = api({ modulo: 'admin', acao: 'tenant.atualizar', token, dados: { status: 'inactive' } });
   const forbiddenOk = adminForbidden && (adminForbidden.sucesso === false ? adminForbidden.codigo === 'forbidden' || adminForbidden.codigo === 'enterprise_plan_required' || adminForbidden.codigo === 'pilot_disabled' : true);

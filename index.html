@@ -978,6 +978,7 @@ tr:last-child td { border-bottom: none; }
                     <th>Maturidade</th>
                     <th>Mensalidade</th>
                     <th>Status</th>
+                    <th>Estado Projeto</th>
                     <th>Ações</th>
                   </tr>
                 </thead>
@@ -999,6 +1000,7 @@ tr:last-child td { border-bottom: none; }
                     </td>
                     <td style="color:var(--emerald);">R$ {{ c.mensalidade }}</td>
                     <td><span class="status-badge" :class="'status-'+c.status">{{ c.status }}</span></td>
+                    <td><span class="status-badge">{{ c.estado_projeto || 'descoberta' }}</span></td>
                     <td>
                       <div style="display:flex;gap:4px;">
                         <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('projetos')">📋</button>
@@ -1753,9 +1755,9 @@ createApp({
       const map = {
         owner: ['*'],
         admin: ['*'],
-        manager: ['clientes.*','diagnosticos.*','tarefas.*','financeiro.*','dashboard.kpis','relatorios.gerar','portal.link','auditoria.listar','admin.tenant.obter','admin.tenant.atualizar','admin.usuarios.listar','billing.assinatura.obter','billing.assinatura.alterarPlano','billing.assinatura.status'],
-        analyst: ['clientes.listar','diagnosticos.*','tarefas.*','financeiro.listar','dashboard.kpis','relatorios.gerar','portal.link','admin.usuarios.listar','billing.assinatura.obter','billing.assinatura.status'],
-        viewer: ['clientes.listar','diagnosticos.listar','tarefas.listar','financeiro.listar','dashboard.kpis','relatorios.gerar','portal.link','billing.assinatura.obter']
+        manager: ['clientes.*','diagnosticos.*','tarefas.*','financeiro.*','dashboard.kpis','dashboard.pipeline','relatorios.gerar','portal.link','auditoria.listar','admin.tenant.obter','admin.tenant.atualizar','admin.usuarios.listar','billing.assinatura.obter','billing.assinatura.alterarPlano','billing.assinatura.status'],
+        analyst: ['clientes.listar','diagnosticos.*','tarefas.*','financeiro.listar','dashboard.kpis','dashboard.pipeline','relatorios.gerar','portal.link','admin.usuarios.listar','billing.assinatura.obter','billing.assinatura.status'],
+        viewer: ['clientes.listar','diagnosticos.listar','tarefas.listar','financeiro.listar','dashboard.kpis','dashboard.pipeline','relatorios.gerar','portal.link','billing.assinatura.obter']
       };
       const recursos = map[perfil] || map.viewer;
       if (recurso === 'auth.verificar') return true;

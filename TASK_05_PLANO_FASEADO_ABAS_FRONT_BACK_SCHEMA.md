@@ -276,3 +276,6 @@ Referência estratégica complementar: `TASK_06_DIRETRIZ_PRODUTO_EXECUCAO_TECNIC
 
 ### Sprint 1 (qualidade e previsibilidade)
 - Execução aplicada: suíte `runUnitTestsCritical()` para fluxos críticos, rota de migração idempotente `setup.migrarSchema`, validação central `validatePayload` no gateway e padrão de erro com `contexto`.
+
+### Sprint 2 (fluxo ponta a ponta consultoria)
+- Execução aplicada: estado de projeto por cliente no backend/listagem (`descoberta`, `planejamento`, `execucao`, `validacao`, `encerrado`), endpoint `dashboard.pipeline`, relatório com suporte a período (`periodo_inicio/periodo_fim`) e portal com evidências + resumo financeiro.
