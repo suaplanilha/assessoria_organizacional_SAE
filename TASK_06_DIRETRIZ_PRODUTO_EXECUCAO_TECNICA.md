@@ -80,10 +80,10 @@ Transformar o estágio atual do projeto em um plano executável de evolução, c
 **Meta:** criar base de engenharia para evoluir com confiança.
 
 ### Entregáveis obrigatórios
-- [ ] Introduzir testes de unidade para `autenticarConsultor`, `verificarSessao`, `api` e filtros multi-tenant.
-- [ ] Criar `migrations` idempotentes para headers do Sheets.
-- [ ] Implementar camada de validação (`validatePayload`) por módulo/ação.
-- [ ] Definir padrão de erro (`{ erro, codigo, contexto }`).
+- [x] Introduzir testes de unidade para `autenticarConsultor`, `verificarSessao`, `api` e filtros multi-tenant.
+- [x] Criar `migrations` idempotentes para headers do Sheets.
+- [x] Implementar camada de validação (`validatePayload`) por módulo/ação.
+- [x] Definir padrão de erro (`{ erro, codigo, contexto }`).
 
 ### Critério de saída da Sprint 1
 - Cobertura mínima de 70% nos fluxos críticos de backend.

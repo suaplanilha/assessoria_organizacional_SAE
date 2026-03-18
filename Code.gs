@@ -171,7 +171,61 @@ function falha(erro, extras = {}) {
 }
 
 function falhaCodigo(codigo, erro, extras = {}) {
-  return falha(erro, Object.assign({ codigo }, extras));
+  const contexto = extras && extras.contexto !== undefined ? extras.contexto : undefined;
+  const base = Object.assign({ codigo }, extras || {});
+  if (contexto === undefined) delete base.contexto;
+  return falha(erro, base);
+}
+
+function validatePayload(modulo, acao, dados = {}) {
+  const m = String(modulo || '');
+  const a = String(acao || '');
+  const d = (dados && typeof dados === 'object' && !Array.isArray(dados)) ? dados : {};
+  const fail = function(msg, contexto = {}) {
+    return falhaCodigo('validation_error', msg, { contexto: Object.assign({ modulo: m, acao: a }, contexto) });
+  };
+
+  if (m === 'auth' && a === 'cadastro') {
+    if (!String(d.nome || '').trim() || !String(d.email || '').trim() || !String(d.senha || '').trim()) {
+      return fail('Nome, e-mail e senha são obrigatórios.', { campos: ['nome', 'email', 'senha'] });
+    }
+  }
+  if (m === 'clientes' && a === 'salvar') {
+    if (!d.uuid && !String(d.empresa_nome || '').trim()) return fail('Nome da empresa é obrigatório.', { campo: 'empresa_nome' });
+  }
+  if (m === 'diagnosticos' && a === 'salvar') {
+    if (!normalizeIdSafe(d.cliente_id)) return fail('Cliente é obrigatório para salvar diagnóstico.', { campo: 'cliente_id' });
+    if (!d.respostas || typeof d.respostas !== 'object' || Array.isArray(d.respostas)) return fail('Respostas do diagnóstico inválidas.', { campo: 'respostas' });
+  }
+  if (m === 'tarefas' && a === 'salvar') {
+    if (!d.uuid && !normalizeIdSafe(d.cliente_id)) return fail('Cliente é obrigatório para criar tarefa.', { campo: 'cliente_id' });
+    if (!d.uuid && !String(d.descricao || '').trim()) return fail('Descrição da tarefa é obrigatória.', { campo: 'descricao' });
+  }
+  if (m === 'tarefas' && a === 'mover') {
+    const valid = ['iniciar', 'execucao', 'validando', 'concluido'];
+    if (!normalizeIdSafe(d.uuid)) return fail('UUID da tarefa é obrigatório.', { campo: 'uuid' });
+    if (!valid.includes(String(d.status || ''))) return fail('Status inválido.', { campo: 'status', validos: valid });
+  }
+  if (m === 'financeiro' && a === 'registrar') {
+    if (!d.uuid && !normalizeIdSafe(d.cliente_id)) return fail('Cliente é obrigatório para registrar mensalidade.', { campo: 'cliente_id' });
+    if (!d.uuid) {
+      const n = Number(d.valor_mensalidade || 0);
+      if (!Number.isFinite(n) || n < 0) return fail('Valor de mensalidade inválido.', { campo: 'valor_mensalidade' });
+    }
+  }
+  if (m === 'portal' && a === 'link') {
+    if (!normalizeIdSafe(d.cliente_id)) return fail('Cliente obrigatório.', { campo: 'cliente_id' });
+  }
+  if (m === 'relatorios' && a === 'gerar') {
+    const tipos = ['executivo', 'progresso', 'diagnostico'];
+    if (!normalizeIdSafe(d.cliente_id)) return fail('Cliente é obrigatório para gerar relatório.', { campo: 'cliente_id' });
+    if (d.tipo && !tipos.includes(String(d.tipo))) return fail('Tipo de relatório inválido.', { campo: 'tipo', validos: tipos });
+  }
+  if (m === 'billing' && a === 'assinatura.alterarPlano') {
+    if (!['Pro', 'Enterprise'].includes(String(d.plano || ''))) return fail('Plano inválido. Use Pro ou Enterprise.', { campo: 'plano' });
+  }
+
+  return null;
 }
 
 function toBooleanSafe(v) {
@@ -544,6 +598,10 @@ function setupSpreadsheet(opts = {}) {
 
 function resetEstruturalSpreadsheet(opts = {}) {
   return setupSpreadsheet(Object.assign({}, opts, { reset_total: true }));
+}
+
+function migrarSchemaIdempotente(opts = {}) {
+  return setupSpreadsheet(Object.assign({}, opts, { reset_total: false }));
 }
 
 // ============================================================
@@ -2461,6 +2519,7 @@ function api(params) {
     setup: {
       executar: () => setupSpreadsheet({ token }),
       resetEstrutural: () => resetEstruturalSpreadsheet({ token }),
+      migrarSchema: () => migrarSchemaIdempotente({ token }),
       validarSchema: () => sucesso(validarSchemaAbas()),
       sanearTarefas: () => sanearTarefas5w2h(dadosReq || {}),
       normalizarSessoes: () => normalizarAbaSessoes(dadosReq || {}),
@@ -2495,6 +2554,11 @@ function api(params) {
     };
 
     const publico = !!(acoesPublicas[modulo] && acoesPublicas[modulo][acao]);
+    const payloadValidation = validatePayload(modulo, acao, dadosReq || {});
+    if (payloadValidation) {
+      return Object.assign({ request_id: requestId }, payloadValidation);
+    }
+
     let contexto = null;
     if (!publico) {
       if (!normalizeIdSafe(token)) return falhaCodigo('token_missing', 'Acesso negado: Token de sessão ausente.', { request_id: requestId });
@@ -2815,6 +2879,58 @@ function runOperationalSmokeTests() {
     sucesso: reprovados === 0,
     resumo: { total: checks.length, aprovados, reprovados },
     checks
+  };
+}
+
+function runUnitTestsCritical() {
+  const resultados = [];
+  function expect(cond, nome, detalhe) { resultados.push({ nome, ok: !!cond, detalhe: detalhe || '' }); }
+
+  const schema = validarSchemaAbas();
+  expect(schema && typeof schema.ok === 'boolean', 'schema_validacao_basica', JSON.stringify(schema || {}));
+
+  const seed = String(new Date().getTime());
+  const email = `unit.${seed}@sae.app`;
+  const senha = 'Unit#2026';
+  const senhaErrada = 'Unit#ERR';
+
+  const cad = cadastrarConsultor({ nome: 'Unit Bot', email, senha }, { allow_internal: true });
+  expect(cad && cad.sucesso === true && !!cad.token, 'cadastro_interno_ok', JSON.stringify(cad || {}));
+
+  const loginOk = autenticarConsultor({ email, senha });
+  expect(loginOk && loginOk.sucesso === true && !!loginOk.token, 'autenticar_senha_correta', JSON.stringify(loginOk || {}));
+
+  const loginBad = autenticarConsultor({ email, senha: senhaErrada });
+  expect(loginBad && loginBad.sucesso === false, 'autenticar_senha_incorreta', JSON.stringify(loginBad || {}));
+
+  const token = (loginOk && loginOk.token) || (cad && cad.token) || '';
+  const sessao = verificarSessao(token);
+  expect(!!sessao, 'verificar_sessao_token_valido', JSON.stringify({ tokenValido: !!token, sessao }));
+
+  const payloadInvalido = api({ modulo: 'tarefas', acao: 'salvar', token, dados: { descricao: '' } });
+  expect(payloadInvalido && payloadInvalido.sucesso === false && payloadInvalido.codigo === 'validation_error', 'api_validate_payload_tarefas', JSON.stringify(payloadInvalido || {}));
+
+  const c1 = cadastrarConsultor({ nome: 'Tenant A', email: `ta.${seed}@sae.app`, senha }, { allow_internal: true });
+  const c2 = cadastrarConsultor({ nome: 'Tenant B', email: `tb.${seed}@sae.app`, senha }, { allow_internal: true });
+  const t1 = c1 && c1.token;
+  const t2 = c2 && c2.token;
+  let isolamentoOk = false;
+  if (t1 && t2) {
+    const cl = api({ modulo: 'clientes', acao: 'salvar', token: t1, dados: { empresa_nome: 'Cliente Tenant A', segmento: 'Teste', status: 'active' } });
+    const listA = api({ modulo: 'clientes', acao: 'listar', token: t1, dados: { page: 1, pageSize: 200, no_cache: true } });
+    const listB = api({ modulo: 'clientes', acao: 'listar', token: t2, dados: { page: 1, pageSize: 200, no_cache: true } });
+    const arrA = (listA && (listA.clientes || (listA.dados && listA.dados.clientes))) || [];
+    const arrB = (listB && (listB.clientes || (listB.dados && listB.dados.clientes))) || [];
+    isolamentoOk = !!(cl && cl.uuid && arrA.some(c => c.uuid === cl.uuid) && !arrB.some(c => c.uuid === cl.uuid));
+  }
+  expect(isolamentoOk, 'filtro_multi_tenant_clientes', JSON.stringify({ isolamentoOk }));
+
+  const aprovados = resultados.filter(r => r.ok).length;
+  const reprovados = resultados.length - aprovados;
+  return {
+    sucesso: reprovados === 0,
+    resumo: { total: resultados.length, aprovados, reprovados },
+    resultados
   };
 }
 

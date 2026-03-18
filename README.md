@@ -54,6 +54,7 @@
 
 - [ ] Executar `setupSpreadsheet()` no editor GAS.
 - [ ] Executar `runApiContractTests()` e confirmar `sucesso: true`.
+- [ ] Executar `runUnitTestsCritical()` e confirmar `sucesso: true`.
 - [ ] Executar `runOperationalSmokeTests()` e confirmar `sucesso: true`.
 - [ ] Publicar nova versão do Web App.
 - [ ] Abrir a URL publicada e validar tela de login.
@@ -190,6 +191,10 @@ google.script.run
 
 - `ALLOW_SELF_SIGNUP=false` (padrão): bloqueia cadastro público.
 - `MAINTENANCE_MODE=false` (padrão): bloqueia `setupSpreadsheet` via app quando não houver sessão admin/owner.
+
+### Migração idempotente de schema
+
+- Execute `api({ modulo: 'setup', acao: 'migrarSchema', token })` com perfil `owner/admin` para adicionar colunas faltantes sem reset estrutural.
 
 ---
 

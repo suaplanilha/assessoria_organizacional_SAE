@@ -273,3 +273,6 @@ Referência estratégica complementar: `TASK_06_DIRETRIZ_PRODUTO_EXECUCAO_TECNIC
 
 ### Sprint 0 (estabilização e segurança)
 - Execução aplicada: login com validação de `senha_hash`, auto-cadastro controlado por `ALLOW_SELF_SIGNUP` (default bloqueado), setup protegido por manutenção/admin e padronização de ação de relatório em front/docs.
+
+### Sprint 1 (qualidade e previsibilidade)
+- Execução aplicada: suíte `runUnitTestsCritical()` para fluxos críticos, rota de migração idempotente `setup.migrarSchema`, validação central `validatePayload` no gateway e padrão de erro com `contexto`.
