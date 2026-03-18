@@ -267,3 +267,6 @@ A iniciativa é considerada concluída quando:
   - suíte operacional `runOperationalSmokeTests()` adicionada ao backend,
   - runbook atualizado para tornar obrigatório `runApiContractTests()` + `runOperationalSmokeTests()` antes de promover release,
   - checklist operacional mínimo por aba para validação manual pós-deploy.
+
+
+Referência estratégica complementar: `TASK_06_DIRETRIZ_PRODUTO_EXECUCAO_TECNICA.md`.

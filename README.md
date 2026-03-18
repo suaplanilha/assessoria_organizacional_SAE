@@ -271,6 +271,7 @@ Pilot rollout controlado: `TASK_03_PILOTO_CONTROLADO_ENTERPRISE.md`.
 Task de correções QA: `TASK_04_CORRECOES_FLUXO_SESSAO_CLIENTES.md`.
 
 Plano faseado por abas (front + back + schema): `TASK_05_PLANO_FASEADO_ABAS_FRONT_BACK_SCHEMA.md`.
+Diretriz de produto e execução técnica (review consolidado): `TASK_06_DIRETRIZ_PRODUTO_EXECUCAO_TECNICA.md`.
 
 
 ### Reset estrutural (ambiente do zero)
