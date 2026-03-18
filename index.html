@@ -2324,12 +2324,16 @@ createApp({
       return { tipo: 'negocio', mensagem: msg || 'Não foi possível concluir a operação.' };
     }
 
-    function notifyOperationError(err, ctxLabel) {
+    function showOperationalError(err, ctxLabel) {
       const parsed = classifyError(err);
       const prefix = parsed.tipo === 'tecnico' ? '[Erro técnico]' : '[Regra de negócio]';
       const rid = (err && err.api && (err.api.request_id || err.api.client_request_id)) || window.__lastRequestId || window.__lastClientRequestId || '';
       const suffix = rid ? (' · protocolo: ' + rid) : '';
       notify(prefix + ' ' + (ctxLabel ? (ctxLabel + ': ') : '') + parsed.mensagem + suffix, parsed.tipo === 'tecnico' ? 'info' : 'error');
+    }
+
+    function notifyOperationError(err, ctxLabel) {
+      return showOperationalError(err, ctxLabel);
     }
 
     function notify(msg, tipo) {
@@ -2630,7 +2634,7 @@ createApp({
             notify('[Regra de negócio] Perfil sem permissão para alterar plano.', 'error');
             return;
           }
-          notifyOperationError(err, 'alterar plano');
+          showOperationalError(err, 'alterar plano');
         })
         .finally(function() {
           loading.value = false;
@@ -2914,7 +2918,7 @@ createApp({
         })
         .then(function(){ notify('Cliente inativado com sucesso.', 'success'); })
         .catch(function(err){
-          if (!handleSessionInvalid(err)) notifyOperationError(err, 'inativar cliente');
+          if (!handleSessionInvalid(err)) showOperationalError(err, 'inativar cliente');
         })
         .finally(function(){ loading.value = false; });
     }
@@ -2935,7 +2939,7 @@ createApp({
           ]);
         })
         .then(function(){ notify(isUpdate ? 'Cliente atualizado com sucesso.' : 'Cliente salvo com sucesso.', 'success'); })
-        .catch(function(err){ if (!handleSessionInvalid(err)) notifyOperationError(err, isUpdate ? 'atualizar cliente' : 'salvar cliente'); })
+        .catch(function(err){ if (!handleSessionInvalid(err)) showOperationalError(err, isUpdate ? 'atualizar cliente' : 'salvar cliente'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -2977,7 +2981,7 @@ createApp({
           }
           notify('Tarefa salva com sucesso.', 'success');
         })
-        .catch(function(err){ notifyOperationError(err, 'salvar tarefa'); })
+        .catch(function(err){ showOperationalError(err, 'salvar tarefa'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3011,7 +3015,7 @@ createApp({
           }
           notify('Tarefa atualizada com sucesso.', 'success');
         })
-        .catch(function(err){ notifyOperationError(err, 'atualizar tarefa'); })
+        .catch(function(err){ showOperationalError(err, 'atualizar tarefa'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3039,7 +3043,7 @@ createApp({
           }
           notify('Tarefa removida com sucesso.', 'success');
         })
-        .catch(function(err){ notifyOperationError(err, 'excluir tarefa'); })
+        .catch(function(err){ showOperationalError(err, 'excluir tarefa'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3071,7 +3075,7 @@ createApp({
           ]);
         })
         .then(function(){ setTimeout(initCharts, 200); notify('Diagnóstico salvo com sucesso.', 'success'); })
-        .catch(function(err){ notifyOperationError(err, 'salvar diagnóstico'); })
+        .catch(function(err){ showOperationalError(err, 'salvar diagnóstico'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3094,7 +3098,7 @@ createApp({
           ]);
         })
         .then(function(){ notify('Pagamento confirmado com sucesso.', 'success'); })
-        .catch(function(err){ notifyOperationError(err, 'confirmar pagamento'); })
+        .catch(function(err){ showOperationalError(err, 'confirmar pagamento'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3113,7 +3117,7 @@ createApp({
           linkPortal.value = res.url;
           notify('Link do portal gerado com sucesso.', 'success');
         })
-        .catch(function(err){ notifyOperationError(err, 'gerar link do portal'); })
+        .catch(function(err){ showOperationalError(err, 'gerar link do portal'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3181,7 +3185,7 @@ createApp({
             }
           }
         })
-        .catch(function(err){ notifyOperationError(err, 'gerar relatório'); })
+        .catch(function(err){ showOperationalError(err, 'gerar relatório'); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3206,7 +3210,7 @@ createApp({
           }
           notify('Relatório "' + r.nome + '" gerado com sucesso.', 'success');
         })
-        .catch(function(err){ notifyOperationError(err, 'gerar relatório ' + (r && r.nome ? r.nome : '')); })
+        .catch(function(err){ showOperationalError(err, 'gerar relatório ' + (r && r.nome ? r.nome : '')); })
         .finally(function(){ loading.value = false; });
     }
 
@@ -3217,7 +3221,7 @@ createApp({
         if (!res || !res.sucesso) {
           const err = new Error((res && res.erro) || 'Falha ao executar setup.');
           err.code = (res && res.codigo) || 'business_error';
-          notifyOperationError(err, 'executar setup');
+          showOperationalError(err, 'executar setup');
           return;
         }
         showSetupAction.value = false;

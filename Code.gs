@@ -3107,6 +3107,14 @@ function runUnitTestsCritical() {
   const payloadInvalido = api({ modulo: 'tarefas', acao: 'salvar', token, dados: { descricao: '' } });
   expect(payloadInvalido && payloadInvalido.sucesso === false && payloadInvalido.codigo === 'validation_error', 'api_validate_payload_tarefas', JSON.stringify(payloadInvalido || {}));
 
+  const postMissingRoute = processarPost({ dados: {} });
+  expect(postMissingRoute && postMissingRoute.sucesso === false && postMissingRoute.codigo === 'validation_error', 'post_sem_modulo_acao_rejeitado', JSON.stringify(postMissingRoute || {}));
+
+  const postInvalidJsonRes = doPost({ postData: { contents: '{"modulo":' } });
+  let postInvalidParsed = null;
+  try { postInvalidParsed = JSON.parse(postInvalidJsonRes.getContent()); } catch (e) {}
+  expect(postInvalidParsed && postInvalidParsed.sucesso === false && postInvalidParsed.codigo === 'invalid_json' && !!postInvalidParsed.request_id, 'doPost_json_invalido_retorna_erro_estruturado', JSON.stringify(postInvalidParsed || {}));
+
   const c1 = cadastrarConsultor({ nome: 'Tenant A', email: `ta.${seed}@sae.app`, senha }, { allow_internal: true });
   const c2 = cadastrarConsultor({ nome: 'Tenant B', email: `tb.${seed}@sae.app`, senha }, { allow_internal: true });
   const t1 = c1 && c1.token;
