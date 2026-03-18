@@ -2957,6 +2957,14 @@ function runApiContractTests() {
 
     const auditoria = api({ modulo: 'auditoria', acao: 'listar', token: tokenValido, dados: { page: 1, pageSize: 20 } });
     expect(auditoria && auditoria.sucesso === true && Array.isArray((auditoria.dados && auditoria.dados.eventos) || auditoria.eventos || []), 'auditoria_listar_contrato', JSON.stringify(auditoria));
+
+    const clientesContrato = api({ modulo: 'clientes', acao: 'listar', token: tokenValido, dados: { page: 1, pageSize: 1, no_cache: true } });
+    const clienteContrato = (clientesContrato && (clientesContrato.clientes || (clientesContrato.dados && clientesContrato.dados.clientes)) || [])[0];
+    if (clienteContrato && clienteContrato.uuid) {
+      const relContrato = api({ modulo: 'relatorios', acao: 'gerar', token: tokenValido, dados: { cliente_id: clienteContrato.uuid, tipo: 'executivo' } });
+      expect(relContrato && relContrato.sucesso === true && !!(relContrato.base64 || relContrato.base64_pdf || relContrato.html), 'relatorio_payload_local_contrato', JSON.stringify(relContrato || {}));
+      expect(relContrato && !relContrato.url, 'relatorio_sem_url_drive_contrato', JSON.stringify(relContrato || {}));
+    }
   }
 
   const schemaCheck = api({ modulo: 'setup', acao: 'validarSchema' });
@@ -3070,7 +3078,7 @@ function runOperationalSmokeTests() {
   record('auditoria.listar', aud && aud.sucesso === true && Array.isArray(eventos), JSON.stringify({ total: eventos.length }));
 
   const rel = api({ modulo: 'relatorios', acao: 'gerar', token, dados: { cliente_id: clienteId, tipo: 'progresso' } });
-  record('relatorios.gerar.progresso', rel && rel.sucesso === true && (!!rel.base64 || !!rel.base64_pdf || !!rel.html), JSON.stringify(rel || {}));
+  record('relatorios.gerar.progresso', rel && rel.sucesso === true && (!!rel.base64 || !!rel.base64_pdf || !!rel.html) && !rel.url, JSON.stringify(rel || {}));
 
   const adminForbidden = api({ modulo: 'admin', acao: 'tenant.atualizar', token, dados: { status: 'inactive' } });
   const forbiddenOk = adminForbidden && (adminForbidden.sucesso === false ? adminForbidden.codigo === 'forbidden' || adminForbidden.codigo === 'enterprise_plan_required' || adminForbidden.codigo === 'pilot_disabled' : true);

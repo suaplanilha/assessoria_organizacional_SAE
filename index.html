@@ -2324,10 +2324,14 @@ createApp({
       return { tipo: 'negocio', mensagem: msg || 'Não foi possível concluir a operação.' };
     }
 
+    function getOperationalProtocolId(err) {
+      return (err && err.api && (err.api.request_id || err.api.client_request_id)) || window.__lastRequestId || window.__lastClientRequestId || '';
+    }
+
     function showOperationalError(err, ctxLabel) {
       const parsed = classifyError(err);
       const prefix = parsed.tipo === 'tecnico' ? '[Erro técnico]' : '[Regra de negócio]';
-      const rid = (err && err.api && (err.api.request_id || err.api.client_request_id)) || window.__lastRequestId || window.__lastClientRequestId || '';
+      const rid = getOperationalProtocolId(err);
       const suffix = rid ? (' · protocolo: ' + rid) : '';
       notify(prefix + ' ' + (ctxLabel ? (ctxLabel + ': ') : '') + parsed.mensagem + suffix, parsed.tipo === 'tecnico' ? 'info' : 'error');
     }
@@ -2361,7 +2365,9 @@ createApp({
       if (!isSessionInvalidError(err)) return false;
       if (sessionInvalidHandled.value) return true;
       sessionInvalidHandled.value = true;
-      notify('Sua sessão expirou ou ficou inconsistente. Faça login novamente.', 'error');
+      const rid = getOperationalProtocolId(err);
+      const suffix = rid ? (' · protocolo: ' + rid) : '';
+      notify('Sua sessão expirou ou ficou inconsistente. Faça login novamente.' + suffix, 'error');
       doLogout();
       return true;
     }
