@@ -804,6 +804,126 @@ function autenticarConsultor(dados) {
     logEstruturado('auth.login.exception', { mensagem: err.message, stack: String(err.stack || '') }, 'ERROR');
     return falha('Erro interno: ' + err.message);
   }
+
+  const headers = snapshot.headers;
+  const idxToken = headers.indexOf('token');
+  const idxConsultor = headers.indexOf('consultor_id');
+  const idxTenant = headers.indexOf('tenant_id');
+  const idxPerfil = headers.indexOf('perfil');
+  const idxExpires = headers.indexOf('expires_at');
+  const idxAtivo = headers.indexOf('ativo');
+
+  if ([idxToken, idxConsultor, idxExpires, idxAtivo].some(function(i){ return i < 0; })) {
+    logEstruturado('session.lookup.header_invalid', { token_prefix: String(token).slice(0, 8) }, 'WARN');
+    return null;
+  }
+
+  for (let i = 0; i < snapshot.rows.length; i++) {
+    const row = snapshot.rows[i];
+    if (String(row[idxToken] || '') !== String(token)) continue;
+    if (!toBooleanSafe(row[idxAtivo])) {
+      logEstruturado('session.lookup.inactive', { consultor_id: row[idxConsultor] || '' }, 'WARN');
+      return null;
+    }
+
+    const expira = new Date(row[idxExpires]);
+    if (Number.isNaN(expira.getTime()) || expira <= new Date()) {
+      logEstruturado('session.lookup.expired', { consultor_id: row[idxConsultor] || '' }, 'WARN');
+      return null;
+    }
+
+    const consultorId = normalizeIdSafe(row[idxConsultor]);
+    if (!consultorId) return null;
+
+    let tenantId = idxTenant >= 0 ? normalizeIdSafe(row[idxTenant]) : '';
+    let perfil = idxPerfil >= 0 ? String(row[idxPerfil] || '').trim().toLowerCase() : '';
+    const consultor = getConsultorById(consultorId);
+
+    if (!tenantId) {
+      tenantId = garantirTenantParaConsultor(consultorId, consultor && consultor.nome, consultor && consultor.plano_saas);
+      if (idxTenant >= 0) sheetInfo.sheet.getRange(i + 2, idxTenant + 1).setValue(tenantId);
+    }
+    if (!perfil) {
+      perfil = String((consultor && consultor.perfil) || 'owner').toLowerCase();
+      if (idxPerfil >= 0) sheetInfo.sheet.getRange(i + 2, idxPerfil + 1).setValue(perfil);
+    }
+
+    return { consultor_id: consultorId, tenant_id: tenantId, perfil: perfil || 'owner' };
+  }
+
+  logEstruturado('session.lookup.not_found', { token_prefix: String(token).slice(0, 8) }, 'WARN');
+  return null;
+}
+
+function temPermissao(perfil, modulo, acao) {
+  const p = String(perfil || 'viewer').toLowerCase();
+  const recursos = RBAC_PERMISSOES_PADRAO[p] || [];
+  if (recursos.includes('*')) return true;
+  const recurso = String(modulo || '') + '.' + String(acao || '');
+  if (recursos.includes(recurso)) return true;
+  if (recursos.includes(String(modulo || '') + '.*')) return true;
+  return false;
+}
+
+function pilotoEnterpriseHabilitado() {
+  const raw = PropertiesService.getScriptProperties().getProperty(ENTERPRISE_PILOT_CONFIG.enabledKey);
+  if (raw === null || raw === undefined || raw === '') return ENTERPRISE_PILOT_CONFIG.defaultEnabled;
+  return !['0', 'false', 'FALSE', 'off', 'OFF'].includes(String(raw).trim());
+}
+
+function limiteTenantsPiloto() {
+  const raw = PropertiesService.getScriptProperties().getProperty(ENTERPRISE_PILOT_CONFIG.maxTenantsKey);
+  const n = Number(raw || ENTERPRISE_PILOT_CONFIG.defaultMaxTenants);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : ENTERPRISE_PILOT_CONFIG.defaultMaxTenants;
+}
+
+function listarTenantsPiloto() {
+  const raw = PropertiesService.getScriptProperties().getProperty(ENTERPRISE_PILOT_CONFIG.tenantsKey) || '';
+  return raw.split(',').map(function(v) { return normalizeIdSafe(v); }).filter(Boolean);
+}
+
+function salvarTenantsPiloto(tenantIds) {
+  const dedup = Array.from(new Set((tenantIds || []).map(function(v) { return normalizeIdSafe(v); }).filter(Boolean)));
+  PropertiesService.getScriptProperties().setProperty(ENTERPRISE_PILOT_CONFIG.tenantsKey, dedup.join(','));
+  return dedup;
+}
+
+function tenantNoPiloto(tenantId) {
+  const tid = normalizeIdSafe(tenantId);
+  if (!tid) return false;
+  return listarTenantsPiloto().indexOf(tid) >= 0;
+}
+
+function ehRotaEnterpriseControlada(modulo, acao) {
+  const m = String(modulo || '');
+  const a = String(acao || '');
+  if (m === 'billing' && a === 'assinatura.status') return false;
+  return ['admin', 'billing', 'auditoria', 'observabilidade'].indexOf(m) >= 0;
+}
+
+function validarAcessoPilotoEnterprise(contexto, modulo, acao) {
+  if (!contexto || !contexto.tenant_id || !ehRotaEnterpriseControlada(modulo, acao)) return null;
+  const tenant = obterTenantStatus(contexto);
+  if (!tenant) return null;
+
+  const assinatura = billingAssinaturaObterFromTenantId(contexto.tenant_id);
+  const plano = assinatura && assinatura.plano ? String(assinatura.plano) : 'Pro';
+  if (String(plano).toLowerCase() !== 'enterprise') {
+    return { codigo: 'enterprise_plan_required', erro: 'Plano Enterprise obrigatório para este recurso.', extras: { plano_atual: plano } };
+  }
+
+  if (!pilotoEnterpriseHabilitado()) return null;
+  if (tenantNoPiloto(contexto.tenant_id)) return null;
+
+  return {
+    codigo: 'enterprise_pilot_restrito',
+    erro: 'Tenant fora do piloto controlado Enterprise.',
+    extras: {
+      pilot_enabled: true,
+      total_inscritos: listarTenantsPiloto().length,
+      limite: limiteTenantsPiloto()
+    }
+  };
 }
 
 function getConsultorById(consultorId) {
