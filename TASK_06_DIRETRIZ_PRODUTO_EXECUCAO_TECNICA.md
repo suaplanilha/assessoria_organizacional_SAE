@@ -65,11 +65,11 @@ Transformar o estágio atual do projeto em um plano executável de evolução, c
 **Meta:** remover riscos críticos antes de novas features.
 
 ### Entregáveis obrigatórios
-- [ ] Adicionar `senha_hash` em `consultores` e validar senha no login.
-- [ ] Bloquear auto-cadastro por padrão (feature flag `ALLOW_SELF_SIGNUP=false`).
-- [ ] Restringir `setupSpreadsheet` para modo manutenção/admin.
-- [ ] Revisar comentários/JSDoc para refletir contrato real das funções.
-- [ ] Padronizar nomenclatura de ações de relatório (`gerar` vs `gerarPdf`) em front+docs.
+- [x] Adicionar `senha_hash` em `consultores` e validar senha no login.
+- [x] Bloquear auto-cadastro por padrão (feature flag `ALLOW_SELF_SIGNUP=false`).
+- [x] Restringir `setupSpreadsheet` para modo manutenção/admin.
+- [x] Revisar comentários/JSDoc para refletir contrato real das funções.
+- [x] Padronizar nomenclatura de ações de relatório (`gerar` vs `gerarPdf`) em front+docs.
 
 ### Critério de saída da Sprint 0
 - 0 bugs de segurança conhecidos em autenticação.

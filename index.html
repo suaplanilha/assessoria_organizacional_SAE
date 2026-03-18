@@ -2746,11 +2746,11 @@ createApp({
       loading.value = true;
       loginError.value = '';
       try {
-        const res = await gasClient.call('cadastrarConsultor', {
+        const res = await apiCall('auth', 'cadastro', {
           nome: signupNome.value,
           email: signupEmail.value,
           senha: signupPass.value
-        }, { retries: 0, timeoutMs: 20000 });
+        }, { retries: 0, timeoutMs: 20000, public: true });
 
         if (!res || !res.sucesso) {
           loginError.value = (res && res.erro) || 'Falha no cadastro.';
@@ -3171,9 +3171,11 @@ createApp({
     async function runSetup() {
       loading.value = true;
       try {
-        const res = await gasClient.call('setupSpreadsheet', undefined, { retries: 0, timeoutMs: 30000 });
+        const res = await apiCall('setup', 'executar', {}, { retries: 0, timeoutMs: 30000, public: true });
         if (!res || !res.sucesso) {
-          notify((res && res.erro) || 'Falha ao executar setup.', 'error');
+          const err = new Error((res && res.erro) || 'Falha ao executar setup.');
+          err.code = (res && res.codigo) || 'business_error';
+          notifyOperationError(err, 'executar setup');
           return;
         }
         showSetupAction.value = false;

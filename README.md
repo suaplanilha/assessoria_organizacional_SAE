@@ -46,7 +46,8 @@
 ### 5. Acessar o Sistema
 
 - Abra a URL do Web App no browser
-- Faça login com qualquer e-mail (auto-cadastro no MVP)
+- Faça login com conta existente
+- Para cadastro público, habilite explicitamente `ALLOW_SELF_SIGNUP=true` nas Script Properties
 - Explore os módulos!
 
 ### ✅ Checklist de Deploy (Fase 4)
@@ -62,7 +63,7 @@
 
 ### 🔎 Smoke test rápido (produção)
 
-1. Login com consultor existente (ou auto-cadastro MVP).
+1. Login com consultor existente (cadastro público só com `ALLOW_SELF_SIGNUP=true`).
 2. Criar um cliente novo.
 3. Criar uma tarefa 5W2H para este cliente.
 4. Registrar mensalidade (pago/pendente).
@@ -179,11 +180,16 @@ google.script.run
   .withSuccessHandler(res => { if(res.sucesso) fecharModal(); })
   .api({ modulo: 'tarefas', acao: 'salvar', token, dados: tarefa5W2H });
 
-// Gerar Relatório PDF
+// Gerar relatório (ação padronizada: relatorios.gerar)
 google.script.run
   .withSuccessHandler(res => window.open(res.url))
   .api({ modulo: 'relatorios', acao: 'gerar', token, dados: { cliente_id, tipo: 'executivo' } });
 ```
+
+### Flags operacionais recomendadas (Script Properties)
+
+- `ALLOW_SELF_SIGNUP=false` (padrão): bloqueia cadastro público.
+- `MAINTENANCE_MODE=false` (padrão): bloqueia `setupSpreadsheet` via app quando não houver sessão admin/owner.
 
 ---
 

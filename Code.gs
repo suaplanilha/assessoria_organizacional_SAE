@@ -128,6 +128,30 @@ const ENTERPRISE_PILOT_CONFIG = {
   defaultMaxTenants: 2
 };
 
+const SECURITY_FLAGS = {
+  allowSelfSignupKey: 'ALLOW_SELF_SIGNUP',
+  maintenanceModeKey: 'MAINTENANCE_MODE'
+};
+
+function isSelfSignupEnabled() {
+  const raw = PropertiesService.getScriptProperties().getProperty(SECURITY_FLAGS.allowSelfSignupKey);
+  if (raw === null || raw === undefined || raw === '') return false;
+  return ['1', 'true', 'TRUE', 'on', 'ON', 'yes', 'YES'].includes(String(raw).trim());
+}
+
+function isMaintenanceModeEnabled() {
+  const raw = PropertiesService.getScriptProperties().getProperty(SECURITY_FLAGS.maintenanceModeKey);
+  if (raw === null || raw === undefined || raw === '') return false;
+  return ['1', 'true', 'TRUE', 'on', 'ON', 'yes', 'YES'].includes(String(raw).trim());
+}
+
+function isPrivilegedToken(token) {
+  const ctx = obterContextoSessao(token);
+  if (!ctx) return false;
+  const perfil = String(ctx.perfil || '').toLowerCase();
+  return perfil === 'owner' || perfil === 'admin';
+}
+
 function logEstruturado(evento, payload = {}, nivel = 'INFO') {
   const base = {
     ts: new Date().toISOString(),
@@ -434,9 +458,17 @@ function doPost(e) {
 
 /**
  * Cria todas as abas do banco de dados com os headers corretos.
- * Execute via: Executar → setupSpreadsheet
+ * Execução permitida somente em manutenção ou com token admin/owner.
+ * Para manutenção, defina Script Property: MAINTENANCE_MODE=true.
  */
 function setupSpreadsheet(opts = {}) {
+  const token = normalizeIdSafe(opts && opts.token);
+  const allowInternal = toBooleanSafe(opts && opts.allow_internal);
+  const permitido = isMaintenanceModeEnabled() || allowInternal || isPrivilegedToken(token);
+  if (!permitido) {
+    return falhaCodigo('setup_forbidden', 'Setup bloqueado. Habilite MAINTENANCE_MODE=true ou execute com sessão admin/owner.');
+  }
+
   const ss = getSpreadsheet();
 
   const SHEETS = SHEET_SCHEMAS;
@@ -510,8 +542,8 @@ function setupSpreadsheet(opts = {}) {
   return sucesso({ status: 'ok', message: 'Setup completo', spreadsheetId: ss.getId(), schemaVersion: SCHEMA_VERSION });
 }
 
-function resetEstruturalSpreadsheet() {
-  return setupSpreadsheet({ reset_total: true });
+function resetEstruturalSpreadsheet(opts = {}) {
+  return setupSpreadsheet(Object.assign({}, opts, { reset_total: true }));
 }
 
 // ============================================================
@@ -808,11 +840,18 @@ function validarAcessoPilotoEnterprise(contexto, modulo, acao) {
 }
 
 /**
- * Cadastra consultor explicitamente
+ * Cadastra consultor explicitamente.
+ * Auto-cadastro público é controlado por ALLOW_SELF_SIGNUP (default: false).
  */
-function cadastrarConsultor(dados) {
+function cadastrarConsultor(dados, opts = {}) {
   const { nome, email, senha } = dados || {};
   if (!nome || !email || !senha) return falha('Nome, e-mail e senha são obrigatórios');
+
+  const authToken = normalizeIdSafe((opts && opts.token) || '');
+  const bypassPolicy = toBooleanSafe(opts && opts.allow_internal);
+  if (!isSelfSignupEnabled() && !bypassPolicy && !isPrivilegedToken(authToken)) {
+    return falhaCodigo('signup_disabled', 'Cadastro público desabilitado. Solicite convite ao administrador.');
+  }
 
   const emailHash = hashEmail(email);
   const senhaHash = hashEmail(senha);
@@ -2386,7 +2425,7 @@ function api(params) {
   const roteamento = {
     auth: {
       login: () => autenticarConsultor(dadosReq),
-      cadastro: () => cadastrarConsultor(dadosReq),
+      cadastro: () => cadastrarConsultor(dadosReq, { token }),
       solicitarReset: () => solicitarResetSenha(dadosReq),
       redefinirSenha: () => redefinirSenha(dadosReq),
       verificar: () => { const ctx = obterContextoSessao(token); return { sucesso: !!ctx, consultor_id: ctx && ctx.consultor_id, tenant_id: ctx && ctx.tenant_id, perfil: ctx && ctx.perfil }; },
@@ -2420,8 +2459,8 @@ function api(params) {
       link: () => gerarLinkPortalCliente(token, dadosReq && dadosReq.cliente_id),
     },
     setup: {
-      executar: () => setupSpreadsheet(),
-      resetEstrutural: () => resetEstruturalSpreadsheet(),
+      executar: () => setupSpreadsheet({ token }),
+      resetEstrutural: () => resetEstruturalSpreadsheet({ token }),
       validarSchema: () => sucesso(validarSchemaAbas()),
       sanearTarefas: () => sanearTarefas5w2h(dadosReq || {}),
       normalizarSessoes: () => normalizarAbaSessoes(dadosReq || {}),
@@ -2586,7 +2625,7 @@ function runApiContractTests() {
   const emailTeste = 'contract.tarefas@sae.app';
   const senhaTeste = 'Contrato#2026';
 
-  const cadastro = cadastrarConsultor({ nome: 'Contract Bot', email: emailTeste, senha: senhaTeste });
+  const cadastro = cadastrarConsultor({ nome: 'Contract Bot', email: emailTeste, senha: senhaTeste }, { allow_internal: true });
   if (cadastro && cadastro.sucesso) {
     tokenValido = cadastro.token;
   } else {
@@ -2701,7 +2740,7 @@ function runOperationalSmokeTests() {
   let clienteId = null;
   let tarefaId = null;
 
-  const cadastro = cadastrarConsultor({ nome: 'Smoke Bot', email, senha });
+  const cadastro = cadastrarConsultor({ nome: 'Smoke Bot', email, senha }, { allow_internal: true });
   if (cadastro && cadastro.sucesso) {
     token = cadastro.token;
     record('auth.cadastro', true, JSON.stringify({ consultor: cadastro.consultor && cadastro.consultor.uuid }));

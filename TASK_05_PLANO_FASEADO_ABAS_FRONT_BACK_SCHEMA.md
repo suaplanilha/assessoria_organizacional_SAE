@@ -270,3 +270,6 @@ A iniciativa é considerada concluída quando:
 
 
 Referência estratégica complementar: `TASK_06_DIRETRIZ_PRODUTO_EXECUCAO_TECNICA.md`.
+
+### Sprint 0 (estabilização e segurança)
+- Execução aplicada: login com validação de `senha_hash`, auto-cadastro controlado por `ALLOW_SELF_SIGNUP` (default bloqueado), setup protegido por manutenção/admin e padronização de ação de relatório em front/docs.
