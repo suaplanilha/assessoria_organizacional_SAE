@@ -16,20 +16,27 @@ function stableJsonStringify(value) {
 function buildSheetQueryCacheKey(sheetName, filtros, opts = {}) {
   const force = toBooleanSafe(opts.force_fresh) ? 'fresh' : 'cache';
   const proj = Array.isArray(opts.project) ? opts.project.slice().sort() : [];
-  return 'repo:q:' + String(sheetName || '') + ':' + force + ':' + Utilities.base64EncodeWebSafe(stableJsonStringify({ f: filtros || {}, p: proj }));
+  const payload = {
+    sheet: String(sheetName || ''),
+    force: force,
+    filtros: filtros || {},
+    project: proj
+  };
+  return buildSafeCacheKey('repo:q:v2:' + String(sheetName || ''), payload);
 }
 
 function getSheetSnapshotCached(sheet, opts = {}) {
   const ttl = getQueryCacheTTL(opts.ttl);
   const forceFresh = toBooleanSafe(opts.force_fresh);
   const name = sheet && sheet.getName ? sheet.getName() : '';
-  const key = 'repo:snapshot:' + name;
+  const cachePrefix = 'repo:snapshot:v2:' + name;
+  const payload = { sheet: name };
   if (!forceFresh) {
-    const hit = getCachedQuery(key);
+    const hit = getCachedQuery(cachePrefix, payload);
     if (hit && hit.headers && hit.rows) return hit;
   }
   const snap = getSheetSnapshot(sheet);
-  setCachedQuery(key, snap, ttl);
+  setCachedQuery(cachePrefix, payload, snap, ttl);
   return snap;
 }
 

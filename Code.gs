@@ -384,13 +384,41 @@ function getCache() {
 }
 
 function getCacheJSON(key) {
-  const raw = getCache().get(key);
-  if (!raw) return null;
-  try { return JSON.parse(raw); } catch (e) { return null; }
+  try {
+    const raw = getCache().get(key);
+    if (!raw) {
+      try { registrarTelemetria('cache', 'miss'); } catch (e) {}
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      try { registrarTelemetria('cache', 'hit'); } catch (e) {}
+      return parsed;
+    } catch (e) {
+      try { registrarTelemetria('cache', 'parse_failed'); } catch (ee) {}
+      return null;
+    }
+  } catch (err) {
+    logEstruturado('cache.get.failed', { key_prefix: String(key || '').slice(0, 40), mensagem: err.message }, 'WARN');
+    try { registrarTelemetria('cache', 'get_failed'); } catch (e) {}
+    return null;
+  }
 }
 
 function setCacheJSON(key, value, ttlSecs) {
-  getCache().put(key, JSON.stringify(value), ttlSecs);
+  try {
+    getCache().put(String(key || ''), JSON.stringify(value), Math.max(1, toNumberSafe(ttlSecs, CACHE_TTL_LISTA)));
+    return true;
+  } catch (err) {
+    const msg = String(err && err.message || '');
+    const keyPrefix = String(key || '').slice(0, 40);
+    logEstruturado('cache.set.failed', { key_prefix: keyPrefix, mensagem: msg }, 'WARN');
+    try {
+      if (msg.toLowerCase().indexOf('argument too large: key') >= 0) registrarTelemetria('cache', 'key_too_large');
+      registrarTelemetria('cache', 'set_failed');
+    } catch (e) {}
+    return false;
+  }
 }
 
 function invalidateConsultorCache(consultorId) {
