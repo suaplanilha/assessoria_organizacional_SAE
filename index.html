@@ -1770,6 +1770,16 @@ createApp({
       return new Promise(function(resolve) { setTimeout(resolve, ms); });
     }
 
+    function resolveTimeoutMs(modulo, acao, opts = {}) {
+      const key = String(modulo || '') + '.' + String(acao || '');
+      const isBoot = !!opts.boot;
+      if (key === 'auth.login' || key === 'auth.verificar' || key.indexOf('setup.') === 0) return 20000;
+      if (key === 'clientes.listar' || key === 'diagnosticos.listar' || key === 'financeiro.listar' || key === 'tarefas.listar') {
+        return isBoot ? 45000 : 30000;
+      }
+      return Number(opts.timeoutMs || 20000);
+    }
+
 
     const allowedFeatures = computed(() => {
       const plano = String((user.value && user.value.plano) || 'Pro');
@@ -2319,6 +2329,17 @@ createApp({
       const erro = Object.prototype.hasOwnProperty.call(envelope, 'erro') ? envelope.erro : (sucesso ? null : 'Falha na API.');
       const requestId = String(envelope.request_id || '');
       const clientRequestId = String(envelope.client_request_id || meta.clientRequestId || '');
+      if (sucesso && !requestId) {
+        return Object.assign({}, envelope, {
+          status: 'invalid',
+          sucesso: false,
+          request_id: '',
+          client_request_id: clientRequestId,
+          dados: dados,
+          erro: 'Resposta sem request_id.',
+          codigo: 'missing_request_id'
+        });
+      }
       const status = sucesso ? 'ok' : (String(erro || '').toLowerCase().indexOf('vazia') >= 0 ? 'empty' : 'error');
       return Object.assign({}, envelope, {
         status: status,
@@ -2342,12 +2363,14 @@ createApp({
       const current = inflightBySequenceKey.get(sequenceKey);
       const sequenceId = (current && current.sequenceId ? current.sequenceId : 0) + 1;
       inflightBySequenceKey.set(sequenceKey, { sequenceId: sequenceId, clientRequestId: clientRequestId });
-      console.log('[runGAS] dispatch', { modulo: modulo, acao: acao, client_request_id: clientRequestId, sequence_key: sequenceKey, sequence_id: sequenceId });
+      const startedAt = Date.now();
+      const timeoutMs = Number(options.timeoutMs || 20000);
+      console.log('[runGAS] dispatch', { modulo: modulo, acao: acao, client_request_id: clientRequestId, sequence_key: sequenceKey, sequence_id: sequenceId, started_at: startedAt, timeout_ms: timeoutMs });
       return gasClient.api(
         { modulo: modulo, acao: acao, token: token, dados: dados, request_id: clientRequestId },
         {
           retries: options.retries !== undefined ? options.retries : 1,
-          timeoutMs: options.timeoutMs || 20000,
+          timeoutMs: timeoutMs,
           silent: !!options.silent,
           cacheKey: options.cacheKey || null,
           cacheTtlMs: options.cacheTtlMs || 0,
@@ -2356,7 +2379,9 @@ createApp({
       ).then(function(res) {
         const normalized = normalizeApiEnvelope(res, { clientRequestId: clientRequestId });
         const latest = inflightBySequenceKey.get(sequenceKey);
-        if (!latest || latest.sequenceId !== sequenceId) {
+        const elapsedMs = Date.now() - startedAt;
+        if (!latest || latest.sequenceId !== sequenceId || latest.clientRequestId !== clientRequestId || (normalized.client_request_id && normalized.client_request_id !== clientRequestId)) {
+          console.log('[runGAS] resolve', { modulo: modulo, acao: acao, resolved_by: 'stale_drop', elapsed_ms: elapsedMs, client_request_id: clientRequestId, sequence_key: sequenceKey, sequence_id: sequenceId });
           return { ignored: true, stale: true, modulo: modulo, acao: acao, client_request_id: clientRequestId, request_id: normalized.request_id || '' };
         }
         if (normalized.sucesso === false) {
@@ -2368,14 +2393,15 @@ createApp({
         }
         const dadosMerge = (normalized && normalized.dados && typeof normalized.dados === 'object') ? normalized.dados : {};
         const merged = Object.assign({}, normalized, dadosMerge);
-        console.log('[runGAS] result', { modulo: modulo, acao: acao, status: normalized.status || 'ok', client_request_id: clientRequestId, request_id: merged.request_id || '' });
+        console.log('[runGAS] resolve', { modulo: modulo, acao: acao, resolved_by: 'success', elapsed_ms: elapsedMs, timeout_ms: timeoutMs, status: normalized.status || 'ok', client_request_id: clientRequestId, request_id: merged.request_id || '' });
         return merged;
       }).catch(function(err) {
         const msg = String((err && err.message) || '');
         const lower = msg.toLowerCase();
         const status = (lower.indexOf('resposta vazia') >= 0 || (err && err.code === 'invalid_envelope')) ? 'empty' : (lower.indexOf('timeout') >= 0 ? 'timeout' : 'error');
+        const elapsedMs = Date.now() - startedAt;
         err.meta = Object.assign({ modulo: modulo, acao: acao, sequence_key: sequenceKey, sequence_id: sequenceId, client_request_id: clientRequestId, status: status }, err && err.meta ? err.meta : {});
-        console.warn('[runGAS] result', { modulo: modulo, acao: acao, status: status, client_request_id: clientRequestId, request_id: (err && err.api && err.api.request_id) || '' });
+        console.warn('[runGAS] resolve', { modulo: modulo, acao: acao, resolved_by: status === 'timeout' ? 'timeout' : 'fallback', elapsed_ms: elapsedMs, timeout_ms: timeoutMs, status: status, client_request_id: clientRequestId, request_id: (err && err.api && err.api.request_id) || '' });
         throw err;
       });
     }
@@ -2453,7 +2479,7 @@ createApp({
       const token = sessionToken.value;
 
       try {
-        await refreshClientes(token, true);
+        await refreshClientes(token, true, true, { boot: true });
       } catch (err) {
         if (!handleSessionInvalid(err)) {
           notifyOperationError(err, 'Carregamento de clientes');
@@ -2461,10 +2487,10 @@ createApp({
       }
 
       const resultados = await Promise.allSettled([
-        refreshDashboard(token, true),
-        refreshTarefas(token, true),
-        refreshDiagnosticos(token, true),
-        refreshFinanceiro(token, true)
+        refreshDashboard(token, true, { boot: true }),
+        refreshTarefas(token, true, false, { boot: true }),
+        refreshDiagnosticos(token, true, false, { boot: true }),
+        refreshFinanceiro(token, true, false, { boot: true })
       ]);
 
       const falhas = resultados.filter(function(r) { return r.status === 'rejected'; });
@@ -2478,12 +2504,13 @@ createApp({
       }
     }
 
-    function refreshDashboard(token, silent) {
+    function refreshDashboard(token, silent, opts = {}) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
       return apiCall('dashboard', 'kpis', {}, {
         token: t,
         retries: 1,
+        timeoutMs: resolveTimeoutMs('dashboard', 'kpis', opts),
         silent: !!silent,
         dedupeKey: 'dashboard:kpis:' + t,
         cacheKey: 'dashboard:kpis:' + t,
@@ -2522,12 +2549,13 @@ createApp({
       return [];
     }
 
-    function refreshClientes(token, silent, forceFresh) {
+    function refreshClientes(token, silent, forceFresh, opts = {}) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
       return apiCall('clientes', 'listar', { page: 1, pageSize: LIST_PAGE_SIZE, no_cache: !!forceFresh }, {
         token: t,
         retries: 1,
+        timeoutMs: resolveTimeoutMs('clientes', 'listar', opts),
         silent: !!silent,
         dedupeKey: 'clientes:listar:' + t,
         cacheKey: forceFresh ? null : ('clientes:listar:' + t),
@@ -2556,7 +2584,7 @@ createApp({
         });
     }
 
-    function executeRefreshTarefas(token, silent, forceFresh, retryOnEmpty) {
+    function executeRefreshTarefas(token, silent, forceFresh, retryOnEmpty, opts = {}) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
       console.log('[refreshTarefas] token?', !!t, 'clienteFiltro=', filtroCliente.value);
@@ -2566,7 +2594,7 @@ createApp({
       refreshTarefasInFlight = apiCall(payload.modulo, payload.acao, payload.dados, {
         token: payload.token,
         retries: 1,
-        timeoutMs: 20000,
+        timeoutMs: resolveTimeoutMs('tarefas', 'listar', opts),
         silent: !!silent,
         sequenceKey: 'tarefas:listar:' + (payload.token || ''),
         dedupeKey: 'tarefas:listar:' + (payload.token || ''),
@@ -2593,13 +2621,13 @@ createApp({
           const isEmptyPayload = msg.toLowerCase().indexOf('resposta vazia da api') >= 0 || (err && err.code === 'invalid_envelope');
           if (isEmptyPayload) {
             tarefas.value = previousTarefas;
-            const rid = getOperationalProtocolId(err) || window.__lastClientRequestId || '';
+            const rid = getOperationalProtocolId(err) || '';
             notify('Aviso: resposta temporariamente vazia em tarefas. Mantivemos os dados anteriores.' + (rid ? (' · protocolo: ' + rid) : ''), 'info', 'tarefas:empty');
             if (!retryOnEmpty) {
               const sleep = (typeof waitMs === 'function') ? waitMs : function(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); };
-              console.log('[refreshTarefas] fallback', { status: 'fallback', modulo: 'tarefas', acao: 'listar', client_request_id: window.__lastClientRequestId || '' });
+              console.log('[refreshTarefas] fallback', { status: 'fallback', modulo: 'tarefas', acao: 'listar', client_request_id: (err && err.meta && err.meta.client_request_id) || '' });
               return sleep(600).then(function() {
-                return executeRefreshTarefas(t, true, forceFresh, true);
+                return executeRefreshTarefas(t, true, forceFresh, true, opts);
               });
             }
           }
@@ -2612,27 +2640,28 @@ createApp({
       return refreshTarefasInFlight;
     }
 
-    function refreshTarefas(token, silent, forceFresh) {
+    function refreshTarefas(token, silent, forceFresh, opts = {}) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
       if (refreshTarefasDebounceTimer) clearTimeout(refreshTarefasDebounceTimer);
       return new Promise(function(resolve, reject) {
-        refreshTarefasQueued = { token: t, silent: !!silent, forceFresh: !!forceFresh, resolve: resolve, reject: reject };
+        refreshTarefasQueued = { token: t, silent: !!silent, forceFresh: !!forceFresh, opts: opts || {}, resolve: resolve, reject: reject };
         refreshTarefasDebounceTimer = setTimeout(function() {
           const queued = refreshTarefasQueued;
           refreshTarefasQueued = null;
           refreshTarefasDebounceTimer = null;
-          executeRefreshTarefas(queued.token, queued.silent, queued.forceFresh, false).then(queued.resolve).catch(queued.reject);
+          executeRefreshTarefas(queued.token, queued.silent, queued.forceFresh, false, queued.opts || {}).then(queued.resolve).catch(queued.reject);
         }, 350);
       });
     }
 
-    function refreshDiagnosticos(token, silent, forceFresh) {
+    function refreshDiagnosticos(token, silent, forceFresh, opts = {}) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
       return apiCall('diagnosticos', 'listar', { page: 1, pageSize: LIST_PAGE_SIZE, no_cache: !!forceFresh }, {
         token: t,
         retries: 1,
+        timeoutMs: resolveTimeoutMs('diagnosticos', 'listar', opts),
         silent: !!silent,
         dedupeKey: 'diagnosticos:listar:' + t,
         cacheKey: forceFresh ? null : ('diagnosticos:listar:' + t),
@@ -2653,12 +2682,13 @@ createApp({
         });
     }
 
-    function refreshFinanceiro(token, silent, forceFresh) {
+    function refreshFinanceiro(token, silent, forceFresh, opts = {}) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
       return apiCall('financeiro', 'listar', { page: 1, pageSize: LIST_PAGE_SIZE, no_cache: !!forceFresh }, {
         token: t,
         retries: 1,
+        timeoutMs: resolveTimeoutMs('financeiro', 'listar', opts),
         silent: !!silent,
         dedupeKey: 'financeiro:listar:' + t,
         cacheKey: forceFresh ? null : ('financeiro:listar:' + t),
