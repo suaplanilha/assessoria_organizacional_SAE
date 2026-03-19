@@ -1019,11 +1019,11 @@ tr:last-child td { border-bottom: none; }
                     <td><span class="status-badge">{{ c.estado_projeto || 'descoberta' }}</span></td>
                     <td>
                       <div style="display:flex;gap:4px;">
-                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('projetos')">📋</button>
-                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('diagnostico')">🔍</button>
-                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('portal')">🌐</button>
-                        <button class="btn btn-ghost btn-sm" @click="editarCliente(c)">✏️</button>
-                        <button class="btn btn-ghost btn-sm" @click="inativarCliente(c)">⏸️</button>
+                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('projetos')" aria-label="Abrir projetos do cliente" title="Abrir projetos do cliente">📋</button>
+                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('diagnostico')" aria-label="Abrir diagnóstico do cliente" title="Abrir diagnóstico do cliente">🔍</button>
+                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('portal')" aria-label="Abrir portal do cliente" title="Abrir portal do cliente">🌐</button>
+                        <button class="btn btn-ghost btn-sm" @click="editarCliente(c)" aria-label="Editar cliente" title="Editar cliente">✏️</button>
+                        <button class="btn btn-ghost btn-sm" @click="inativarCliente(c)" aria-label="Inativar cliente" title="Inativar cliente">⏸️</button>
                       </div>
                     </td>
                   </tr>
@@ -1762,6 +1762,10 @@ createApp({
       return Number.isFinite(parsed) ? parsed : 0;
     }
 
+    function waitMs(ms) {
+      return new Promise(function(resolve) { setTimeout(resolve, ms); });
+    }
+
 
     const allowedFeatures = computed(() => {
       const plano = String((user.value && user.value.plano) || 'Pro');
@@ -2133,10 +2137,6 @@ createApp({
         }
       }
 
-      function waitMs(ms) {
-        return new Promise(function(resolve) { setTimeout(resolve, ms); });
-      }
-
       function runRpc(methodName, payload, timeoutMs) {
         return new Promise((resolve, reject) => {
           let done = false;
@@ -2331,7 +2331,15 @@ createApp({
           throw err;
         }
         const dadosMerge = (res && res.dados && typeof res.dados === 'object') ? res.dados : {};
-        return Object.assign({}, res, dadosMerge);
+        const merged = Object.assign({}, res, dadosMerge);
+        console.log('[runGAS] result', { modulo: modulo, acao: acao, status: 'ok', client_request_id: clientRequestId, request_id: merged.request_id || '' });
+        return merged;
+      }).catch(function(err) {
+        const msg = String((err && err.message) || '');
+        const lower = msg.toLowerCase();
+        const status = (lower.indexOf('resposta vazia') >= 0 || (err && err.code === 'invalid_envelope')) ? 'empty' : (lower.indexOf('timeout') >= 0 ? 'timeout' : 'error');
+        console.warn('[runGAS] result', { modulo: modulo, acao: acao, status: status, client_request_id: clientRequestId, request_id: (err && err.api && err.api.request_id) || window.__lastRequestId || '' });
+        throw err;
       });
     }
 
@@ -2400,7 +2408,13 @@ createApp({
       if (!sessionToken.value) return;
       const token = sessionToken.value;
 
-      await refreshClientes(token, true);
+      try {
+        await refreshClientes(token, true);
+      } catch (err) {
+        if (!handleSessionInvalid(err)) {
+          notifyOperationError(err, 'Carregamento de clientes');
+        }
+      }
 
       const resultados = await Promise.allSettled([
         refreshDashboard(token, true),
@@ -2414,6 +2428,9 @@ createApp({
         console.warn('[carregarDadosIniciais] falhas parciais:', falhas.map(function(f) { return f.reason && f.reason.message ? f.reason.message : String(f.reason); }));
         const falhaSessao = falhas.find(function(f) { return isSessionInvalidError(f.reason); });
         if (falhaSessao) handleSessionInvalid(falhaSessao.reason);
+        if (!falhaSessao) {
+          notify('Alguns dados iniciais atrasaram. Exibindo o conteúdo disponível.', 'info');
+        }
       }
     }
 
@@ -2535,7 +2552,9 @@ createApp({
             const rid = getOperationalProtocolId(err) || window.__lastClientRequestId || '';
             notify('Aviso: resposta temporariamente vazia em tarefas. Mantivemos os dados anteriores.' + (rid ? (' · protocolo: ' + rid) : ''), 'info');
             if (!retryOnEmpty) {
-              return waitMs(600).then(function() {
+              const sleep = (typeof waitMs === 'function') ? waitMs : function(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); };
+              console.log('[refreshTarefas] fallback', { status: 'fallback', modulo: 'tarefas', acao: 'listar', client_request_id: window.__lastClientRequestId || '' });
+              return sleep(600).then(function() {
                 return executeRefreshTarefas(t, true, forceFresh, true);
               });
             }
