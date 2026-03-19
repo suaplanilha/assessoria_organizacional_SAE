@@ -2741,6 +2741,63 @@ function adminConvitesAlertas(token, opts = {}) {
   });
 }
 
+function bootstrapSuperAdmin(dados = {}) {
+  const maintenance = isMaintenanceMode();
+  const expectedKey = String(PropertiesService.getScriptProperties().getProperty('ADMIN_BOOTSTRAP_KEY') || '').trim();
+  const providedKey = String(dados.bootstrap_key || '').trim();
+  if (!maintenance) {
+    if (!expectedKey || providedKey !== expectedKey) {
+      return falhaCodigo('bootstrap_forbidden', 'Bootstrap de super admin bloqueado. Habilite manutenção ou informe bootstrap_key válido.');
+    }
+  }
+
+  const nome = String(dados.nome || '').trim();
+  const email = String(dados.email || '').trim().toLowerCase();
+  const senha = String(dados.senha || '').trim();
+  if (!nome || !email || !senha) return falhaCodigo('validation_error', 'Nome, e-mail e senha são obrigatórios.');
+  if (!isValidEmail(email)) return falhaCodigo('validation_error', 'E-mail inválido.');
+  if (senha.length < 8) return falhaCodigo('validation_error', 'Senha deve ter no mínimo 8 caracteres.');
+
+  let consultor = getConsultorByEmail(email);
+  if (!consultor) {
+    const cadastro = cadastrarConsultor({ nome, email, senha }, { allow_internal: true });
+    if (!cadastro || cadastro.sucesso === false) return cadastro || falhaCodigo('bootstrap_failed', 'Falha ao criar super admin.');
+    consultor = cadastro.consultor || getConsultorByEmail(email);
+  }
+  if (!consultor || !consultor.uuid) return falhaCodigo('bootstrap_failed', 'Não foi possível localizar o usuário admin.');
+
+  const tenantId = normalizeIdSafe(dados.tenant_id) || garantirTenantParaConsultor(consultor.uuid, nome, 'Enterprise');
+  const sheetInfo = getSheetOrFail('consultores');
+  if (sheetInfo.error) return sheetInfo.error;
+  const linha = encontrarLinha(sheetInfo.sheet, consultor.uuid);
+  if (!linha) return falhaCodigo('bootstrap_failed', 'Registro do usuário admin não encontrado.');
+  const headers = linha.headers || [];
+  const idxTenant = headers.indexOf('tenant_id');
+  const idxPerfil = headers.indexOf('perfil');
+  const idxAtivo = headers.indexOf('ativo');
+  if (idxTenant >= 0) sheetInfo.sheet.getRange(linha.row, idxTenant + 1).setValue(tenantId);
+  if (idxPerfil >= 0) sheetInfo.sheet.getRange(linha.row, idxPerfil + 1).setValue('super_admin');
+  if (idxAtivo >= 0) sheetInfo.sheet.getRange(linha.row, idxAtivo + 1).setValue(true);
+
+  registrarAuditoria({
+    modulo: 'admin',
+    acao: 'bootstrap.super_admin',
+    sucesso: true,
+    codigo: 'bootstrap_super_admin_ok',
+    mensagem: 'Super admin bootstrap concluído.',
+    tenant_id: tenantId,
+    consultor_id: consultor.uuid,
+    perfil: 'super_admin',
+    payload: { email_hash: hashEmail(email) }
+  });
+  return sucesso({
+    consultor_id: consultor.uuid,
+    tenant_id: tenantId,
+    perfil: 'super_admin',
+    admin_access_v1: adminAccessV1Enabled()
+  });
+}
+
 function billingAssinaturaObterFromTenantId(tenantId) {
   const tid = normalizeIdSafe(tenantId);
   if (!tid) return null;
@@ -2982,6 +3039,7 @@ function api(params) {
       resetEstrutural: () => resetEstruturalSpreadsheet({ token }),
       migrarSchema: () => migrarSchemaIdempotente({ token }),
       validarSchema: () => sucesso(validarSchemaAbas()),
+      bootstrapSuperAdmin: () => bootstrapSuperAdmin(dadosReq || {}),
       sanearTarefas: () => sanearTarefas5w2h(dadosReq || {}),
       normalizarSessoes: () => normalizarAbaSessoes(dadosReq || {}),
     },
@@ -3018,7 +3076,7 @@ function api(params) {
     const acoesPublicas = {
       auth: { login: true, cadastro: true, solicitarReset: true, redefinirSenha: true, verificar: true },
       convites: { solicitar: true },
-      setup: { validarSchema: true }
+      setup: { validarSchema: true, bootstrapSuperAdmin: true }
     };
 
     const publico = !!(acoesPublicas[modulo] && acoesPublicas[modulo][acao]);

@@ -32,6 +32,33 @@ Implementação da fundação técnica para A1+A2+B1+B2, com foco em não regres
 - [ ] Testes de homologação e rollout piloto — pendente (runtime GAS/UI).
 - [x] Alertas operacionais (D3) — endpoint de alertas operacionais de convites e log `WARN` para picos.
 
+## Status por EPIC/TASK (atualizado)
+
+### EPIC A — Controle de Acesso e Papéis
+- [x] A1: matriz RBAC base com `super_admin/admin_tenant/consultor/viewer` no backend.
+- [x] A2: guard central de autorização em rotas admin (server-side).
+- [x] A3: operações críticas admin validam sessão/role com erro padronizado.
+
+### EPIC B — Aprovação de Novos Clientes/Usuários
+- [x] B1: entidades `tb_invites` e `tb_memberships` adicionadas no schema versionado.
+- [x] B2: fluxo `pending -> approved/rejected` implementado no backend.
+- [x] B3: fila Admin com filtros e ações de aprovação/rejeição no frontend.
+
+### EPIC C — Não regressão
+- [x] C1: feature flag `admin_access_v1` aplicada ao novo fluxo.
+- [x] C2: fluxo legado mantido (novo fluxo isolado por flag).
+- [ ] C3: rollback drill em homologação (desativar `admin_access_v1`) — pendente de evidência.
+
+### EPIC D — Observabilidade e Operação
+- [x] D1: logs com rastreio admin no pipeline existente (`request_id/client_request_id`).
+- [x] D2: auditoria nas ações de convite/aprovação/rejeição e bootstrap.
+- [x] D3: endpoint de alerta para picos de rejeição/pendência + log `WARN`.
+
+## Runbook D0 — Admin inicial fora do sistema
+- [x] Endpoint técnico de bootstrap (`setup.bootstrapSuperAdmin`) implementado com proteção:
+  - chave `ADMIN_BOOTSTRAP_KEY` **ou** `MAINTENANCE_MODE=true`.
+- [ ] Execução assistida em homologação e depois produção — pendente de operação.
+
 ## Próxima iteração recomendada
 1. Entregar tela Admin de convites (fila + decisão + filtros).
 2. Executar suíte operacional em homologação:
