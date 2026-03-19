@@ -5,7 +5,7 @@
 
 function isAdminPerfil(perfil) {
   const p = String(perfil || '').toLowerCase();
-  return p === 'owner' || p === 'admin';
+  return p === 'owner' || p === 'admin' || p === 'super_admin' || p === 'admin_tenant';
 }
 
 function ensureAdminContextForRoute(token, modulo, acao) {

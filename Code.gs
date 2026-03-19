@@ -45,6 +45,12 @@ const SHEET_SCHEMAS = {
   tb_auditoria: [
     'uuid', 'request_id', 'tenant_id', 'consultor_id', 'perfil', 'modulo', 'acao', 'sucesso', 'codigo', 'mensagem', 'payload_json', 'created_at'
   ],
+  tb_invites: [
+    'invite_id', 'tenant_id', 'email', 'email_hash', 'nome', 'perfil_sugerido', 'status', 'motivo', 'decidido_por', 'decidido_em', 'expira_em', 'used_at', 'created_at', 'updated_at'
+  ],
+  tb_memberships: [
+    'membership_id', 'tenant_id', 'consultor_id', 'perfil', 'status', 'aprovado_por', 'created_at', 'updated_at'
+  ],
   consultores: [
     'uuid', 'tenant_id', 'perfil', 'nome', 'email', 'email_hash', 'senha_hash', 'plano_saas',
     'data_adesao', 'ativo', 'configuracoes_json',
@@ -75,6 +81,40 @@ const SHEET_SCHEMAS = {
 };
 
 const RBAC_PERMISSOES_PADRAO = {
+  super_admin: ['*'],
+  admin_tenant: [
+    'auth.verificar',
+    'clientes.*',
+    'diagnosticos.*',
+    'tarefas.*',
+    'financeiro.*',
+    'dashboard.kpis',
+    'dashboard.pipeline',
+    'onboarding.status',
+    'relatorios.gerar',
+    'portal.link',
+    'auditoria.listar',
+    'admin.tenant.obter',
+    'admin.tenant.atualizar',
+    'admin.usuarios.listar',
+    'admin.convites.listar',
+    'admin.convites.aprovar',
+    'admin.convites.rejeitar',
+    'billing.assinatura.obter',
+    'billing.assinatura.status'
+  ],
+  consultor: [
+    'auth.verificar',
+    'clientes.*',
+    'diagnosticos.*',
+    'tarefas.*',
+    'financeiro.*',
+    'dashboard.kpis',
+    'dashboard.pipeline',
+    'onboarding.status',
+    'relatorios.gerar',
+    'portal.link'
+  ],
   owner: ['*'],
   admin: ['*'],
   manager: [
@@ -928,6 +968,21 @@ function temPermissao(perfil, modulo, acao) {
   if (recursos.includes(recurso)) return true;
   if (recursos.includes(String(modulo || '') + '.*')) return true;
   return false;
+}
+
+function adminAccessV1Enabled() {
+  const raw = PropertiesService.getScriptProperties().getProperty('admin_access_v1');
+  if (raw === null || raw === undefined || raw === '') return false;
+  const v = String(raw).trim().toLowerCase();
+  return !['0', 'false', 'off', 'no'].includes(v);
+}
+
+function normalizeAdminRole(perfil) {
+  const p = String(perfil || '').toLowerCase();
+  if (p === 'owner' || p === 'super_admin') return 'super_admin';
+  if (p === 'admin' || p === 'admin_tenant') return 'admin_tenant';
+  if (p === 'manager' || p === 'analyst' || p === 'consultor') return 'consultor';
+  return 'viewer';
 }
 
 function pilotoEnterpriseHabilitado() {
@@ -2485,6 +2540,167 @@ function adminPilotoRemover(token) {
   return sucesso({ tenant_id: contexto.tenant_id, em_piloto: false, total_inscritos: salvos.length });
 }
 
+function solicitarConvitePublico(dados = {}) {
+  if (!adminAccessV1Enabled()) return falhaCodigo('feature_disabled', 'Fluxo de convites indisponível no momento.');
+  const nome = String(dados.nome || '').trim();
+  const email = String(dados.email || '').trim().toLowerCase();
+  if (!nome || !email) return falhaCodigo('validation_error', 'Nome e e-mail são obrigatórios.');
+  if (!isValidEmail(email)) return falhaCodigo('validation_error', 'E-mail inválido.');
+  const perfilSugerido = normalizeAdminRole(dados.perfil_sugerido || 'viewer');
+
+  const invitesInfo = getSheetOrFail('tb_invites');
+  if (invitesInfo.error) return invitesInfo.error;
+  const sheet = invitesInfo.sheet;
+  const nowIso = new Date().toISOString();
+  const inviteId = gerarUUID();
+  const emailHash = hashEmail(email);
+  const expira = new Date(Date.now() + (7 * 24 * 60 * 60 * 1000)).toISOString();
+  sheet.appendRow([
+    inviteId,
+    normalizeIdSafe(dados.tenant_id || ''),
+    email,
+    emailHash,
+    nome,
+    perfilSugerido,
+    'pending',
+    '',
+    '',
+    '',
+    expira,
+    '',
+    nowIso,
+    nowIso
+  ]);
+  registrarAuditoria({
+    modulo: 'convites',
+    acao: 'solicitar',
+    sucesso: true,
+    codigo: 'invite_requested',
+    mensagem: 'Solicitação de convite recebida.',
+    payload: { invite_id: inviteId, email_hash: emailHash, perfil_sugerido: perfilSugerido }
+  });
+  return sucesso({ invite_id: inviteId, status: 'pending' });
+}
+
+function adminListarConvites(token, opts = {}) {
+  if (!adminAccessV1Enabled()) return falhaCodigo('feature_disabled', 'Fluxo de convites desabilitado por feature flag.');
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.consultor_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+  const role = normalizeAdminRole(contexto.perfil);
+  if (role !== 'super_admin' && role !== 'admin_tenant') return falhaCodigo('forbidden', 'Acesso negado para listar convites.');
+
+  const sheetInfo = getSheetOrFail('tb_invites');
+  if (sheetInfo.error) return sheetInfo.error;
+  const statusFilter = String(opts.status || '').toLowerCase().trim();
+  let convites = sheetParaObjetos(sheetInfo.sheet, {})
+    .filter(function(row) {
+      if (role === 'admin_tenant' && normalizeIdSafe(row.tenant_id) !== normalizeIdSafe(contexto.tenant_id)) return false;
+      if (statusFilter && String(row.status || '').toLowerCase() !== statusFilter) return false;
+      return true;
+    })
+    .map(function(row) {
+      return {
+        invite_id: row.invite_id,
+        tenant_id: row.tenant_id,
+        email: row.email,
+        nome: row.nome,
+        perfil_sugerido: row.perfil_sugerido || 'viewer',
+        status: row.status || 'pending',
+        motivo: row.motivo || '',
+        decidido_por: row.decidido_por || '',
+        decidido_em: row.decidido_em || '',
+        expira_em: row.expira_em || '',
+        used_at: row.used_at || '',
+        created_at: row.created_at || ''
+      };
+    });
+  convites = convites.sort(function(a, b) { return String(b.created_at || '').localeCompare(String(a.created_at || '')); });
+  return sucesso({ convites: convites, total: convites.length });
+}
+
+function adminDecidirConvite(token, dados = {}, decisao) {
+  if (!adminAccessV1Enabled()) return falhaCodigo('feature_disabled', 'Fluxo de convites desabilitado por feature flag.');
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.consultor_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+  const role = normalizeAdminRole(contexto.perfil);
+  if (role !== 'super_admin' && role !== 'admin_tenant') return falhaCodigo('forbidden', 'Acesso negado para decidir convites.');
+
+  const inviteId = normalizeIdSafe(dados.invite_id);
+  if (!inviteId) return falhaCodigo('validation_error', 'invite_id é obrigatório.');
+  const decision = String(decisao || '').toLowerCase() === 'approved' ? 'approved' : 'rejected';
+  const motivo = String(dados.motivo || '').trim();
+  const perfilFinal = normalizeAdminRole(dados.perfil || dados.perfil_sugerido || 'viewer');
+
+  const invitesInfo = getSheetOrFail('tb_invites');
+  if (invitesInfo.error) return invitesInfo.error;
+  const rowInfo = encontrarLinha(invitesInfo.sheet, inviteId);
+  if (!rowInfo) return falhaCodigo('invite_not_found', 'Convite não encontrado.');
+  const convite = rowInfo.obj || {};
+  const statusAtual = String(convite.status || '').toLowerCase();
+  if (statusAtual !== 'pending') return falhaCodigo('invite_already_decided', 'Convite já foi processado.');
+  if (role === 'admin_tenant' && normalizeIdSafe(convite.tenant_id) !== normalizeIdSafe(contexto.tenant_id)) {
+    return falhaCodigo('forbidden', 'Convite fora do tenant do administrador.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const headers = rowInfo.headers || [];
+  function setField(campo, valor) {
+    const idx = headers.indexOf(campo);
+    if (idx >= 0) invitesInfo.sheet.getRange(rowInfo.row, idx + 1).setValue(valor);
+  }
+  setField('status', decision);
+  setField('motivo', motivo);
+  setField('decidido_por', contexto.consultor_id);
+  setField('decidido_em', nowIso);
+  setField('updated_at', nowIso);
+
+  let consultorId = '';
+  if (decision === 'approved') {
+    const consultor = getConsultorByEmail(convite.email);
+    consultorId = consultor && consultor.uuid ? consultor.uuid : '';
+    if (!consultorId) {
+      const cadastro = cadastrarConsultor({
+        nome: convite.nome || 'Novo usuário',
+        email: convite.email,
+        senha: gerarRequestId().slice(0, 12)
+      }, { allow_internal: true });
+      if (!cadastro || cadastro.sucesso === false) return cadastro || falhaCodigo('invite_approval_failed', 'Não foi possível criar usuário aprovado.');
+      consultorId = cadastro.consultor && cadastro.consultor.uuid ? cadastro.consultor.uuid : '';
+    }
+    const consultoresInfo = getSheetOrFail('consultores');
+    if (consultoresInfo.error) return consultoresInfo.error;
+    const linhaConsultor = encontrarLinha(consultoresInfo.sheet, consultorId);
+    if (!linhaConsultor) return falhaCodigo('consultor_not_found', 'Usuário aprovado não localizado após cadastro.');
+    const cHeaders = linhaConsultor.headers || [];
+    const tenantFinal = normalizeIdSafe(convite.tenant_id) || normalizeIdSafe(contexto.tenant_id);
+    const idxTenant = cHeaders.indexOf('tenant_id');
+    const idxPerfil = cHeaders.indexOf('perfil');
+    const idxAtivo = cHeaders.indexOf('ativo');
+    if (idxTenant >= 0) consultoresInfo.sheet.getRange(linhaConsultor.row, idxTenant + 1).setValue(tenantFinal);
+    if (idxPerfil >= 0) consultoresInfo.sheet.getRange(linhaConsultor.row, idxPerfil + 1).setValue(perfilFinal);
+    if (idxAtivo >= 0) consultoresInfo.sheet.getRange(linhaConsultor.row, idxAtivo + 1).setValue(true);
+
+    const membershipsInfo = getSheetOrFail('tb_memberships');
+    if (membershipsInfo.error) return membershipsInfo.error;
+    membershipsInfo.sheet.appendRow([
+      gerarUUID(),
+      tenantFinal,
+      consultorId,
+      perfilFinal,
+      'active',
+      contexto.consultor_id,
+      nowIso,
+      nowIso
+    ]);
+  }
+
+  return sucesso({
+    invite_id: inviteId,
+    status: decision,
+    consultor_id: consultorId || null
+  });
+}
+
 function billingAssinaturaObterFromTenantId(tenantId) {
   const tid = normalizeIdSafe(tenantId);
   if (!tid) return null;
@@ -2718,6 +2934,9 @@ function api(params) {
     portal: {
       link: () => gerarLinkPortalCliente(token, dadosReq && dadosReq.cliente_id),
     },
+    convites: {
+      solicitar: () => solicitarConvitePublico(dadosReq || {})
+    },
     setup: {
       executar: () => setupSpreadsheet({ token }),
       resetEstrutural: () => resetEstruturalSpreadsheet({ token }),
@@ -2730,6 +2949,9 @@ function api(params) {
       'tenant.obter': () => adminObterTenant(token),
       'tenant.atualizar': () => adminAtualizarTenant(token, dadosReq || {}),
       'usuarios.listar': () => adminListarUsuarios(token, dadosReq || {}),
+      'convites.listar': () => adminListarConvites(token, dadosReq || {}),
+      'convites.aprovar': () => adminDecidirConvite(token, dadosReq || {}, 'approved'),
+      'convites.rejeitar': () => adminDecidirConvite(token, dadosReq || {}, 'rejected'),
       'piloto.status': () => adminPilotoStatus(token),
       'piloto.inscrever': () => adminPilotoInscrever(token),
       'piloto.remover': () => adminPilotoRemover(token),
@@ -2754,6 +2976,7 @@ function api(params) {
   try {
     const acoesPublicas = {
       auth: { login: true, cadastro: true, solicitarReset: true, redefinirSenha: true, verificar: true },
+      convites: { solicitar: true },
       setup: { validarSchema: true }
     };
 
