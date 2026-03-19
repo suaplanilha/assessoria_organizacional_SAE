@@ -1734,6 +1734,8 @@ createApp({
     const sessionInvalidHandled = ref(false);
     let refreshTarefasInFlight = null;
     let refreshTarefasSeq = 0;
+    let refreshTarefasDebounceTimer = null;
+    let refreshTarefasQueued = null;
 
     const clientes = ref([]);
     const tarefas = ref([]);
@@ -2284,14 +2286,23 @@ createApp({
       return p + '_' + Date.now().toString(36) + '_' + rand;
     }
 
-    function apiCall(modulo, acao, dados = {}, options = {}) {
+    function validateApiEnvelope(res) {
+      return !!(res && typeof res === 'object' && typeof res.sucesso === 'boolean' && Object.prototype.hasOwnProperty.call(res, 'request_id') && Object.prototype.hasOwnProperty.call(res, 'erro') && Object.prototype.hasOwnProperty.call(res, 'dados'));
+    }
+
+    function runGAS(modulo, acao, dados = {}, options = {}) {
       const isPublic = !!options.public;
       const token = options.token !== undefined ? options.token : sessionToken.value;
       if (!isPublic && !normalizeIdSafe(token)) {
         return Promise.reject(new Error('Acesso negado: Token de sessão ausente.'));
       }
-      const clientRequestId = options.requestId || generateClientRequestId(modulo + '_' + acao);
+      const clientRequestId = options.clientRequestId || options.requestId || generateClientRequestId(modulo + '_' + acao);
       window.__lastClientRequestId = clientRequestId;
+      const sequenceKey = String(options.sequenceKey || (modulo + ':' + acao));
+      runGAS.__seqByKey = runGAS.__seqByKey || {};
+      runGAS.__seqByKey[sequenceKey] = (runGAS.__seqByKey[sequenceKey] || 0) + 1;
+      const sequenceId = runGAS.__seqByKey[sequenceKey];
+      console.log('[runGAS] dispatch', { modulo: modulo, acao: acao, client_request_id: clientRequestId, sequence_key: sequenceKey, sequence_id: sequenceId });
       return gasClient.api(
         { modulo: modulo, acao: acao, token: token, dados: dados, request_id: clientRequestId },
         {
@@ -2304,6 +2315,15 @@ createApp({
         }
       ).then(function(res) {
         if (!res) throw new Error('Resposta vazia da API.');
+        if (!validateApiEnvelope(res)) {
+          const envelopeErr = new Error('Contrato de resposta inválido da API.');
+          envelopeErr.code = 'invalid_envelope';
+          envelopeErr.api = res;
+          throw envelopeErr;
+        }
+        if ((runGAS.__seqByKey[sequenceKey] || 0) !== sequenceId) {
+          return { ignored: true, stale: true, modulo: modulo, acao: acao, client_request_id: clientRequestId, request_id: res.request_id || '' };
+        }
         if (res.sucesso === false) {
           const err = new Error(res.erro || 'Falha na API.');
           err.code = res.codigo || 'business_error';
@@ -2313,6 +2333,10 @@ createApp({
         const dadosMerge = (res && res.dados && typeof res.dados === 'object') ? res.dados : {};
         return Object.assign({}, res, dadosMerge);
       });
+    }
+
+    function apiCall(modulo, acao, dados = {}, options = {}) {
+      return runGAS(modulo, acao, dados, options);
     }
 
     function classifyError(err) {
@@ -2471,22 +2495,25 @@ createApp({
         });
     }
 
-    function refreshTarefas(token, silent, forceFresh) {
+    function executeRefreshTarefas(token, silent, forceFresh, retryOnEmpty) {
       const t = token || sessionToken.value;
       if (!t) return Promise.resolve();
       console.log('[refreshTarefas] token?', !!t, 'clienteFiltro=', filtroCliente.value);
       const payload = { modulo: 'tarefas', acao: 'listar', token: t, dados: { page: 1, pageSize: LIST_PAGE_SIZE, no_cache: !!forceFresh } };
-      if (refreshTarefasInFlight) return refreshTarefasInFlight;
       const seq = ++refreshTarefasSeq;
+      const previousTarefas = Array.isArray(tarefas.value) ? tarefas.value.slice() : [];
       refreshTarefasInFlight = apiCall(payload.modulo, payload.acao, payload.dados, {
         token: payload.token,
         retries: 1,
+        timeoutMs: 20000,
         silent: !!silent,
+        sequenceKey: 'tarefas:listar:' + (payload.token || ''),
         dedupeKey: 'tarefas:listar:' + (payload.token || ''),
         cacheKey: forceFresh ? null : ('tarefas:listar:' + (payload.token || '')),
         cacheTtlMs: forceFresh ? 0 : 4000
       })
         .then(function(res) {
+          if (res && res.ignored && res.stale) return;
           if (seq !== refreshTarefasSeq) return;
           console.log('[refreshTarefas] resposta bruta:', res);
           const incoming = unwrapApiList(res, 'tarefas');
@@ -2501,6 +2528,18 @@ createApp({
           console.log('[refreshTarefas] tarefas carregadas:', tarefas.value.length);
         })
         .catch(function(err) {
+          const msg = String((err && err.message) || '');
+          const isEmptyPayload = msg.toLowerCase().indexOf('resposta vazia da api') >= 0 || (err && err.code === 'invalid_envelope');
+          if (isEmptyPayload) {
+            tarefas.value = previousTarefas;
+            const rid = getOperationalProtocolId(err) || window.__lastClientRequestId || '';
+            notify('Aviso: resposta temporariamente vazia em tarefas. Mantivemos os dados anteriores.' + (rid ? (' · protocolo: ' + rid) : ''), 'info');
+            if (!retryOnEmpty) {
+              return waitMs(600).then(function() {
+                return executeRefreshTarefas(t, true, forceFresh, true);
+              });
+            }
+          }
           if (!handleSessionInvalid(err)) console.error('[refreshTarefas] erro:', err);
           throw err;
         })
@@ -2508,6 +2547,21 @@ createApp({
           if (refreshTarefasInFlight) refreshTarefasInFlight = null;
         });
       return refreshTarefasInFlight;
+    }
+
+    function refreshTarefas(token, silent, forceFresh) {
+      const t = token || sessionToken.value;
+      if (!t) return Promise.resolve();
+      if (refreshTarefasDebounceTimer) clearTimeout(refreshTarefasDebounceTimer);
+      return new Promise(function(resolve, reject) {
+        refreshTarefasQueued = { token: t, silent: !!silent, forceFresh: !!forceFresh, resolve: resolve, reject: reject };
+        refreshTarefasDebounceTimer = setTimeout(function() {
+          const queued = refreshTarefasQueued;
+          refreshTarefasQueued = null;
+          refreshTarefasDebounceTimer = null;
+          executeRefreshTarefas(queued.token, queued.silent, queued.forceFresh, false).then(queued.resolve).catch(queued.reject);
+        }, 350);
+      });
     }
 
     function refreshDiagnosticos(token, silent, forceFresh) {

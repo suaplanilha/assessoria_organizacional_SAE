@@ -575,6 +575,7 @@ function doPost(e) {
       sucesso: false,
       codigo: 'invalid_json',
       erro: 'Payload JSON inválido.',
+      dados: null,
       request_id: requestId
     })).setMimeType(ContentService.MimeType.JSON);
   }
