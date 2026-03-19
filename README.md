@@ -46,8 +46,50 @@
 ### 5. Acessar o Sistema
 
 - Abra a URL do Web App no browser
-- Faça login com qualquer e-mail (auto-cadastro no MVP)
+- Faça login com conta existente
+- Para cadastro público, habilite explicitamente `ALLOW_SELF_SIGNUP=true` nas Script Properties
 - Explore os módulos!
+
+### ✅ Checklist de Deploy (Fase 4)
+
+- [ ] Executar `setupSpreadsheet()` no editor GAS.
+- [ ] Executar `runApiContractTests()` e confirmar `sucesso: true`.
+- [ ] Executar `runUnitTestsCritical()` e confirmar `sucesso: true`.
+- [ ] Executar `runOperationalSmokeTests()` e confirmar `sucesso: true`.
+- [ ] Executar `runRegressionSuiteP1()` e confirmar `sucesso: true`.
+- [ ] Publicar nova versão do Web App.
+- [ ] Abrir a URL publicada e validar tela de login.
+- [ ] Realizar login e confirmar sessão ativa.
+- [ ] Acessar Dashboard e verificar ausência de erros no console.
+- [ ] Validar fluxo mínimo ponta-a-ponta: Cliente → Tarefa → Financeiro.
+
+### 🧪 Suíte mínima de regressão (P1)
+
+Execute no editor GAS:
+
+1. `runRegressionSuiteP1()`
+2. Confirmar `sucesso: true` e checagens-chave:
+   - `post_sem_modulo_acao_rejeitado`
+   - `doPost_json_invalido_retorna_erro_estruturado`
+   - `portal_token_expirado_rejeitado`
+   - `setup_migration_guard_admin_only`
+   - `filtro_multi_tenant_clientes`
+   - `relatorio_sem_url_drive_contrato`
+
+### 🔎 Smoke test rápido (produção)
+
+1. Login com consultor existente (cadastro público só com `ALLOW_SELF_SIGNUP=true`).
+2. Criar um cliente novo.
+3. Criar uma tarefa 5W2H para este cliente.
+4. Registrar mensalidade (pago/pendente).
+5. Reabrir app e confirmar sessão válida sem novo login imediato.
+
+### 🎯 Critérios de aceite (próxima iteração)
+
+- Login funcional em Web App publicado.
+- Sessão persistindo e validando por 7 dias.
+- Dashboard carregando dados reais sem erro JS no console.
+- Fluxos críticos (cliente, tarefa, financeiro) funcionando de ponta a ponta.
 
 ---
 
@@ -143,6 +185,11 @@ google.script.run
   .withSuccessHandler(res => renderKPIs(res.kpis))
   .api({ modulo: 'dashboard', acao: 'kpis', token });
 
+// Estado de pipeline por cliente
+google.script.run
+  .withSuccessHandler(res => console.log(res.estado_projeto || (res.dados && res.dados.estado_projeto)))
+  .api({ modulo: 'dashboard', acao: 'pipeline', token, dados: { cliente_id } });
+
 // Listar Clientes
 google.script.run
   .withSuccessHandler(res => clientes.value = res.clientes)
@@ -153,11 +200,20 @@ google.script.run
   .withSuccessHandler(res => { if(res.sucesso) fecharModal(); })
   .api({ modulo: 'tarefas', acao: 'salvar', token, dados: tarefa5W2H });
 
-// Gerar Relatório PDF
+// Gerar relatório (ação padronizada: relatorios.gerar)
 google.script.run
   .withSuccessHandler(res => window.open(res.url))
   .api({ modulo: 'relatorios', acao: 'gerar', token, dados: { cliente_id, tipo: 'executivo' } });
 ```
+
+### Flags operacionais recomendadas (Script Properties)
+
+- `ALLOW_SELF_SIGNUP=false` (padrão): bloqueia cadastro público.
+- `MAINTENANCE_MODE=false` (padrão): bloqueia `setupSpreadsheet` via app quando não houver sessão admin/owner.
+
+### Migração idempotente de schema
+
+- Execute `api({ modulo: 'setup', acao: 'migrarSchema', token })` com perfil `owner/admin` para adicionar colunas faltantes sem reset estrutural.
 
 ---
 
@@ -219,3 +275,37 @@ google.script.run
 
 *SAE — Sistema Apollo Enterprise · Desenvolvido com Google Apps Script + Vue 3*
 *Mascote oficial: Apollo 🐾 (Shih Tzu)*
+
+
+---
+
+## 🏢 Roadmap Enterprise
+
+A evolução do SAE Pro para Enterprise foi mapeada com:
+- arquitetura alvo multi-tenant,
+- plano de migração de schema,
+- backlog por épicos (E1..E5),
+- proposta de novas APIs administrativas,
+- riscos e critérios de aceite de release.
+
+Consulte: `TASK_01_ENTERPRISE_EVOLUCAO.md`.
+
+Status atual: Sprint 1-2 (E1 + E2 base), Sprint 3 (E3), Sprint 4 (E4), Sprint 5 (E5) e Sprint 6 (piloto controlado com 1-2 tenants enterprise) executados na base.
+
+
+Runbook operacional/compliance: `TASK_02_RUNBOOK_OBSERVABILIDADE_COMPLIANCE.md`.
+
+
+Pilot rollout controlado: `TASK_03_PILOTO_CONTROLADO_ENTERPRISE.md`.
+
+Task de correções QA: `TASK_04_CORRECOES_FLUXO_SESSAO_CLIENTES.md`.
+
+Plano faseado por abas (front + back + schema): `TASK_05_PLANO_FASEADO_ABAS_FRONT_BACK_SCHEMA.md`.
+Diretriz de produto e execução técnica (review consolidado): `TASK_06_DIRETRIZ_PRODUTO_EXECUCAO_TECNICA.md`.
+
+
+### Reset estrutural (ambiente do zero)
+Quando houver drift severo de colunas/headers nas abas, execute:
+1. `resetEstruturalSpreadsheet()` (apaga abas gerenciadas e recria estrutura canônica).
+2. `setupSpreadsheet()` (idempotente para validar schema).
+3. Novo cadastro/login para repovoar dados do tenant.

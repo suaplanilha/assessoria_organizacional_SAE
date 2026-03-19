@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SAE — Sistema Apollo Enterprise</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
@@ -13,16 +13,16 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg-base: #0f172a;
-  --bg-surface: rgba(15, 23, 42, 0.8);
-  --bg-card: rgba(30, 41, 59, 0.6);
-  --bg-card-hover: rgba(30, 41, 59, 0.85);
-  --bg-glass: rgba(255,255,255,0.04);
-  --bg-glass-hover: rgba(255,255,255,0.08);
-  --border: rgba(255,255,255,0.08);
+  --bg-surface: rgba(15, 23, 42, 0.92);
+  --bg-card: rgba(30, 41, 59, 0.88);
+  --bg-card-hover: rgba(51, 65, 85, 0.96);
+  --bg-glass: rgba(255,255,255,0.09);
+  --bg-glass-hover: rgba(255,255,255,0.14);
+  --border: rgba(255,255,255,0.16);
   --border-accent: rgba(99,102,241,0.4);
   --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #475569;
+  --text-secondary: #cbd5e1;
+  --text-muted: #b8c5d6;
   --accent: #6366f1;
   --accent-2: #8b5cf6;
   --accent-glow: rgba(99,102,241,0.15);
@@ -31,8 +31,8 @@
   --emerald: #10b981;
   --rose: #f43f5e;
   --cyan: #06b6d4;
-  --font-head: 'Syne', sans-serif;
-  --font-body: 'DM Sans', sans-serif;
+  --font-head: 'Roboto', sans-serif;
+  --font-body: 'Roboto', sans-serif;
   --sidebar-w: 260px;
   --radius: 12px;
   --radius-lg: 18px;
@@ -40,6 +40,33 @@
   --blur: blur(20px);
   --shadow: 0 8px 32px rgba(0,0,0,0.4);
   --shadow-sm: 0 2px 12px rgba(0,0,0,0.3);
+  --mesh-1: rgba(99,102,241,0.12);
+  --mesh-2: rgba(139,92,246,0.1);
+  --mesh-3: rgba(20,184,166,0.06);
+  --sidebar-bg: rgba(15,23,42,0.95);
+  --topbar-bg: rgba(15,23,42,0.7);
+}
+
+[data-theme="light"] {
+  --bg-base: #f8fafc;
+  --bg-surface: rgba(255, 255, 255, 0.96);
+  --bg-card: rgba(255, 255, 255, 0.95);
+  --bg-card-hover: rgba(255, 255, 255, 1);
+  --bg-glass: rgba(15, 23, 42, 0.05);
+  --bg-glass-hover: rgba(15, 23, 42, 0.1);
+  --border: rgba(15, 23, 42, 0.16);
+  --border-accent: rgba(79, 70, 229, 0.35);
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #475569;
+  --accent-glow: rgba(79,70,229,0.12);
+  --shadow: 0 10px 30px rgba(15,23,42,0.12);
+  --shadow-sm: 0 4px 18px rgba(15,23,42,0.14);
+  --mesh-1: rgba(79,70,229,0.15);
+  --mesh-2: rgba(147,51,234,0.1);
+  --mesh-3: rgba(6,182,212,0.08);
+  --sidebar-bg: rgba(255,255,255,0.94);
+  --topbar-bg: rgba(255,255,255,0.88);
 }
 html, body { height: 100%; overflow: hidden; }
 body {
@@ -54,21 +81,21 @@ body {
 .bg-mesh {
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background:
-    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(99,102,241,0.12) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 80% 80%, rgba(139,92,246,0.1) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 50% 40%, rgba(20,184,166,0.06) 0%, transparent 60%),
-    #0f172a;
+    radial-gradient(ellipse 80% 60% at 20% 10%, var(--mesh-1) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 80%, var(--mesh-2) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 40%, var(--mesh-3) 0%, transparent 60%),
+    var(--bg-base);
 }
 
 /* ===== APP LAYOUT ===== */
-#app { display: flex; height: 100vh; position: relative; z-index: 1; overflow: hidden; }
+#app { display: flex; height: 100vh; width: 100%; position: relative; z-index: 1; overflow: hidden; }
 
 /* ===== SIDEBAR ===== */
 .sidebar {
   width: var(--sidebar-w);
   min-width: var(--sidebar-w);
   height: 100vh;
-  background: rgba(15,23,42,0.95);
+  background: var(--sidebar-bg);
   backdrop-filter: var(--blur);
   border-right: 1px solid var(--border);
   display: flex;
@@ -134,6 +161,7 @@ body {
   user-select: none;
 }
 .nav-item:hover { background: var(--bg-glass); color: var(--text-primary); }
+.nav-item.disabled { opacity: .45; cursor: not-allowed; pointer-events: none; }
 .nav-item.active {
   background: var(--accent-glow); color: var(--text-primary);
   border: 1px solid var(--border-accent);
@@ -171,7 +199,7 @@ body {
 }
 .topbar {
   height: 58px; min-height: 58px;
-  background: rgba(15,23,42,0.7); backdrop-filter: var(--blur);
+  background: var(--topbar-bg); backdrop-filter: var(--blur);
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; padding: 0 24px; gap: 16px;
   z-index: 5;
@@ -201,10 +229,22 @@ body {
 
 .content {
   flex: 1; overflow-y: auto; padding: 24px;
-  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.2) transparent;
 }
 .content::-webkit-scrollbar { width: 4px; }
-.content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+
+.content > div {
+  position: relative;
+  z-index: 2;
+}
+
+.content .card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
 
 /* ===== GLASS CARDS ===== */
 .card {
@@ -260,6 +300,8 @@ body {
   display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
   margin-bottom: 24px;
 }
+.chart-box { position: relative; width: 100%; height: 260px; overflow: hidden; }
+.chart-box canvas { width: 100% !important; height: 100% !important; display: block; }
 
 /* ===== DATA TABLE ===== */
 .table-wrap { overflow-x: auto; margin-top: 8px; }
@@ -296,11 +338,13 @@ tr:last-child td { border-bottom: none; }
   display: flex; align-items: center; justify-content: center; padding: 20px;
 }
 .modal {
-  background: #1e293b; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-primary);
+  border: 1px solid var(--border);
   border-radius: var(--radius-xl); padding: 28px;
   width: 100%; max-width: 520px; max-height: 85vh;
   overflow-y: auto;
-  box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+  box-shadow: var(--shadow);
+  backdrop-filter: var(--blur);
   animation: modalIn 0.2s ease;
 }
 .modal-lg { max-width: 700px; }
@@ -309,6 +353,16 @@ tr:last-child td { border-bottom: none; }
   display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px;
 }
 .modal-title { font-family: var(--font-head); font-size: 18px; font-weight: 800; }
+.modal .modal-title { color: var(--text-primary); }
+.modal .form-label { color: var(--text-secondary); font-weight: 500; }
+.modal .form-input,
+.modal .form-select,
+.modal .form-textarea {
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: var(--radius);
+}
 .modal-close {
   width: 30px; height: 30px; border-radius: 8px; border: none;
   background: var(--bg-glass); color: var(--text-secondary); cursor: pointer;
@@ -325,7 +379,7 @@ tr:last-child td { border-bottom: none; }
 }
 .form-input, .form-select, .form-textarea {
   width: 100%; padding: 9px 12px; border-radius: 8px;
-  border: 1px solid var(--border); background: rgba(15,23,42,0.8);
+  border: 1px solid var(--border); background: var(--bg-glass);
   color: var(--text-primary); font-family: var(--font-body); font-size: 13px;
   outline: none; transition: border-color 0.15s, box-shadow 0.15s;
   -webkit-appearance: none;
@@ -334,7 +388,7 @@ tr:last-child td { border-bottom: none; }
   border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
 }
 .form-textarea { resize: vertical; min-height: 80px; }
-.form-select option { background: #1e293b; }
+.form-select option { background: var(--bg-card); color: var(--text-primary); }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
 .form-divider { height: 1px; background: var(--border); margin: 18px 0; }
@@ -345,8 +399,8 @@ tr:last-child td { border-bottom: none; }
   min-height: 400px;
 }
 .kanban-col {
-  background: rgba(15,23,42,0.6);
-  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-surface);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
   display: flex; flex-direction: column;
 }
 .kanban-header {
@@ -371,6 +425,7 @@ tr:last-child td { border-bottom: none; }
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 12px;
   cursor: pointer; transition: all 0.15s;
+  color: var(--text-primary);
 }
 .task-card:hover { border-color: rgba(255,255,255,0.15); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 .task-title { font-size: 12px; font-weight: 500; margin-bottom: 6px; line-height: 1.4; }
@@ -435,15 +490,16 @@ tr:last-child td { border-bottom: none; }
 /* ===== LOGIN ===== */
 .login-wrap {
   display: flex; align-items: center; justify-content: center;
+  flex: 1; width: 100%;
   min-height: 100vh; padding: 20px;
   background:
-    radial-gradient(ellipse 60% 50% at 30% 20%, rgba(99,102,241,0.15) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 70% 80%, rgba(139,92,246,0.12) 0%, transparent 60%),
-    #0f172a;
+    radial-gradient(ellipse 60% 50% at 30% 20%, var(--mesh-1) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 70% 80%, var(--mesh-2) 0%, transparent 60%),
+    var(--bg-base);
 }
 .login-box {
   width: 100%; max-width: 420px;
-  background: rgba(30,41,59,0.8); backdrop-filter: var(--blur);
+  background: var(--bg-card); backdrop-filter: var(--blur);
   border: 1px solid var(--border); border-radius: var(--radius-xl);
   padding: 40px; box-shadow: 0 32px 80px rgba(0,0,0,0.5);
 }
@@ -451,6 +507,8 @@ tr:last-child td { border-bottom: none; }
 .login-apollo { font-size: 48px; display: block; margin-bottom: 10px; filter: drop-shadow(0 0 15px rgba(99,102,241,0.5)); }
 .login-title { font-family: var(--font-head); font-size: 22px; font-weight: 800; }
 .login-sub { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
+.auth-switch { display: flex; gap: 8px; margin-bottom: 14px; }
+.auth-switch .btn { flex: 1; justify-content: center; }
 .login-btn {
   width: 100%; padding: 12px; border: none; border-radius: 10px;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
@@ -460,6 +518,14 @@ tr:last-child td { border-bottom: none; }
 }
 .login-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(99,102,241,0.4); }
 .login-divider { text-align: center; color: var(--text-muted); font-size: 12px; margin: 18px 0; }
+
+.login-actions { display:flex; justify-content:space-between; gap:8px; margin-top:10px; }
+.login-link-btn {
+  background: transparent; border: none; color: var(--accent); cursor: pointer;
+  font-size: 12px; font-weight: 500; padding: 0;
+}
+.login-link-btn:hover { text-decoration: underline; }
+
 
 /* ===== SKELETON ===== */
 .skeleton {
@@ -476,7 +542,7 @@ tr:last-child td { border-bottom: none; }
 /* ===== LOADING OVERLAY ===== */
 .loading-overlay {
   position: fixed; inset: 0; z-index: 200;
-  background: rgba(15,23,42,0.95); backdrop-filter: var(--blur);
+  background: var(--sidebar-bg); backdrop-filter: var(--blur);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
 }
 .loading-mascot { font-size: 64px; animation: bounce 0.8s ease-in-out infinite alternate; }
@@ -491,8 +557,41 @@ tr:last-child td { border-bottom: none; }
 .loading-dot:nth-child(3) { animation-delay: 0.3s; background: var(--teal); }
 @keyframes pulse { 0%,100%{ opacity:0.3; transform:scale(0.8); } 50%{ opacity:1; transform:scale(1.2); } }
 
+/* ===== TOAST ===== */
+.toast-stack {
+  position: fixed; right: 16px; top: 16px; z-index: 400;
+  display: flex; flex-direction: column; gap: 8px; max-width: 360px;
+}
+.toast {
+  border-radius: 10px; padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary); font-size: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.toast.success { border-color: rgba(16,185,129,0.5); color: #6ee7b7; }
+.toast.error { border-color: rgba(244,63,94,0.5); color: #fda4af; }
+.toast.info { border-color: rgba(6,182,212,0.5); color: #67e8f9; }
+
+/* ===== SYSTEM MODAL ===== */
+.system-modal-overlay {
+  position: fixed; inset: 0; z-index: 420;
+  background: rgba(2,6,23,0.65); backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+}
+.system-modal {
+  width: min(92vw, 420px);
+  background: var(--sidebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+.system-modal h4 { margin: 0 0 10px; font-size: 14px; }
+.system-modal p { margin: 0 0 14px; font-size: 12px; color: var(--text-secondary); }
+
 /* ===== TABS ===== */
-.tabs { display: flex; gap: 2px; background: rgba(15,23,42,0.6); border-radius: 10px; padding: 4px; margin-bottom: 18px; width: fit-content; }
+.tabs { display: flex; gap: 2px; background: var(--bg-glass); border: 1px solid var(--border); border-radius: 10px; padding: 4px; margin-bottom: 18px; width: fit-content; }
 .tab {
   padding: 7px 16px; border-radius: 7px; border: none; cursor: pointer;
   font-family: var(--font-body); font-size: 12px; font-weight: 500;
@@ -509,9 +608,9 @@ tr:last-child td { border-bottom: none; }
 .empty-text { font-size: 13px; }
 
 /* ===== SCROLLBAR ===== */
-* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent; }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.2) transparent; }
 *::-webkit-scrollbar { width: 4px; height: 4px; }
-*::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+*::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
 
 /* ===== RESPONSIVE ===== */
 @media (max-width: 1100px) {
@@ -556,27 +655,96 @@ tr:last-child td { border-bottom: none; }
     </div>
   </transition>
 
+  <div class="toast-stack" v-if="toasts.length">
+    <div class="toast" :class="t.tipo" v-for="t in toasts" :key="t.id">{{ t.msg }}</div>
+  </div>
+
+  <div class="system-modal-overlay" v-if="systemModal.open" @click.self="closeSystemModal">
+    <div class="system-modal">
+      <h4>{{ systemModal.title }}</h4>
+      <p>{{ systemModal.message }}</p>
+      <div style="display:flex;justify-content:flex-end;">
+        <button class="btn btn-primary" @click="closeSystemModal">OK</button>
+      </div>
+    </div>
+  </div>
+
   <!-- LOGIN -->
-  <div class="login-wrap" v-if="!authenticated">
+  <div class="login-wrap" v-if="appState!=='authenticated'">
     <div class="login-box">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+        <button class="btn btn-ghost btn-sm" @click="toggleTheme">{{ currentTheme==='dark' ? '☀️ Tema claro' : '🌙 Tema escuro' }}</button>
+      </div>
       <div class="login-logo">
         <span class="login-apollo">🐾</span>
         <div class="login-title">SAE</div>
         <div class="login-sub">Sistema Apollo Enterprise</div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Email do Consultor</label>
-        <input class="form-input" type="email" v-model="loginEmail" placeholder="seu@email.com" @keyup.enter="doLogin">
+      <div class="auth-switch">
+        <button class="btn" :class="authMode==='login' ? 'btn-primary' : 'btn-ghost'" @click="authMode='login'">Entrar</button>
+        <button class="btn" :class="authMode==='signup' ? 'btn-primary' : 'btn-ghost'" @click="authMode='signup'">Criar conta</button>
       </div>
-      <div class="form-group">
-        <label class="form-label">Senha</label>
-        <input class="form-input" type="password" v-model="loginPass" placeholder="••••••••" @keyup.enter="doLogin">
-      </div>
+
+      <template v-if="authMode==='login'">
+        <div class="form-group">
+          <label class="form-label">Email do Consultor</label>
+          <input class="form-input" type="email" v-model="loginEmail" placeholder="seu@email.com" @keyup.enter="doLogin">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Senha</label>
+          <input class="form-input" type="password" v-model="loginPass" placeholder="••••••••" @keyup.enter="doLogin">
+        </div>
+      </template>
+
+      <template v-else-if="authMode==='forgot'">
+        <div class="form-group">
+          <label class="form-label">E-mail cadastrado</label>
+          <input class="form-input" type="email" v-model="resetEmail" placeholder="seu@email.com" @keyup.enter="requestPasswordReset">
+        </div>
+      </template>
+
+      <template v-else-if="authMode==='reset'">
+        <div class="form-group">
+          <label class="form-label">Código de recuperação</label>
+          <input class="form-input" type="text" v-model="resetToken" placeholder="Cole o código recebido por e-mail">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nova senha</label>
+          <input class="form-input" type="password" v-model="resetPass" placeholder="Mínimo 6 caracteres" @keyup.enter="confirmPasswordReset">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Confirmar nova senha</label>
+          <input class="form-input" type="password" v-model="resetPassConfirm" placeholder="Repita a nova senha" @keyup.enter="confirmPasswordReset">
+        </div>
+      </template>
+
+      <template v-else>
+        <div class="form-group">
+          <label class="form-label">Nome</label>
+          <input class="form-input" type="text" v-model="signupNome" placeholder="Seu nome completo">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-input" type="email" v-model="signupEmail" placeholder="seu@email.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Senha</label>
+          <input class="form-input" type="password" v-model="signupPass" placeholder="Mínimo 6 caracteres">
+        </div>
+      </template>
+
+      <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 12px;" v-if="appState==='booting'">Validando sessão...</div>
       <div style="color: var(--rose); font-size: 12px; margin-bottom: 12px;" v-if="loginError">{{ loginError }}</div>
-      <button class="login-btn" @click="doLogin">Entrar no Sistema</button>
-      <div class="login-divider">— ou acesse como —</div>
-      <button class="btn btn-ghost" style="width:100%; justify-content:center;" @click="demoLogin">
-        🚀 Demo: Consultor Apollo
+      <button class="login-btn" @click="submitAuth()" :disabled="appState==='booting'">
+        {{ authPrimaryButtonLabel }}
+      </button>
+      <div class="login-actions">
+        <button class="login-link-btn" v-if="authMode==='login'" @click="authMode='forgot'">Esqueci minha senha</button>
+        <button class="login-link-btn" v-if="authMode==='forgot'" @click="authMode='reset'">Já tenho o código</button>
+        <button class="login-link-btn" v-if="authMode==='forgot' || authMode==='reset'" @click="authMode='login'">Voltar ao login</button>
+      </div>
+      <button class="btn btn-ghost" style="width:100%; justify-content:center; margin-top:8px;" @click="runSetup" v-if="showSetupAction">
+        🛠️ Executar setupSpreadsheet()
       </button>
       <p style="text-align:center; color:var(--text-muted); font-size:10px; margin-top:16px;">
         Dados protegidos por SHA-256 · Multi-tenant isolado por consultor
@@ -602,43 +770,48 @@ tr:last-child td { border-bottom: none; }
             <div class="user-name">{{ user.nome }}</div>
             <div class="user-plan">Plano {{ user.plano }}</div>
           </div>
-          <span class="plan-badge">PRO</span>
+          <span class="plan-badge">{{ String(user.plano || 'Pro').toUpperCase() }}</span>
         </div>
       </div>
 
       <nav class="sidebar-nav">
         <div class="nav-section-label">Principal</div>
-        <div class="nav-item" :class="{active: currentPage==='dashboard'}" @click="navigate('dashboard')">
+        <div class="nav-item" :class="{active: currentPage==='dashboard', disabled: !canAccessPage('dashboard')}" @click="navigate('dashboard')">
           <span class="nav-icon">📊</span> Dashboard
         </div>
-        <div class="nav-item" :class="{active: currentPage==='clientes'}" @click="navigate('clientes')">
+        <div class="nav-item" :class="{active: currentPage==='clientes', disabled: !canAccessPage('clientes')}" @click="navigate('clientes')">
           <span class="nav-icon">🏢</span> Clientes
           <span class="nav-badge" v-if="clientes.length">{{ clientes.length }}</span>
         </div>
 
         <div class="nav-section-label">Ferramentas</div>
-        <div class="nav-item" :class="{active: currentPage==='diagnostico'}" @click="navigate('diagnostico')">
+        <div class="nav-item" :class="{active: currentPage==='diagnostico', disabled: !canAccessPage('diagnostico')}" @click="navigate('diagnostico')">
           <span class="nav-icon">🔍</span> Diagnóstico
         </div>
-        <div class="nav-item" :class="{active: currentPage==='projetos'}" @click="navigate('projetos')">
+        <div class="nav-item" :class="{active: currentPage==='projetos', disabled: !canAccessPage('projetos')}" @click="navigate('projetos')">
           <span class="nav-icon">📋</span> Projetos 5W2H
         </div>
-        <div class="nav-item" :class="{active: currentPage==='financeiro'}" @click="navigate('financeiro')">
+        <div class="nav-item" :class="{active: currentPage==='financeiro', disabled: !canAccessPage('financeiro')}" @click="navigate('financeiro')">
           <span class="nav-icon">💰</span> Financeiro
         </div>
 
         <div class="nav-section-label">Portal</div>
-        <div class="nav-item" :class="{active: currentPage==='portal'}" @click="navigate('portal')">
+        <div class="nav-item" :class="{active: currentPage==='portal', disabled: !canAccessPage('portal')}" @click="navigate('portal')">
           <span class="nav-icon">🌐</span> Portal do Cliente
         </div>
-        <div class="nav-item" :class="{active: currentPage==='relatorios'}" @click="navigate('relatorios')">
+        <div class="nav-item" :class="{active: currentPage==='relatorios', disabled: !canAccessPage('relatorios')}" @click="navigate('relatorios')">
           <span class="nav-icon">📄</span> Relatórios
         </div>
 
         <div class="nav-section-label">Sistema</div>
-        <div class="nav-item" :class="{active: currentPage==='configuracoes'}" @click="navigate('configuracoes')">
+        <div class="nav-item" :class="{active: currentPage==='configuracoes', disabled: !canAccessPage('configuracoes')}" @click="navigate('configuracoes')">
           <span class="nav-icon">⚙️</span> Configurações
         </div>
+
+        <div class="nav-item" v-if="canAccessPage('admin')" :class="{active: currentPage==='admin'}" @click="navigate('admin')">
+          <span class="nav-icon">🛡️</span> Admin Enterprise
+        </div>
+
       </nav>
 
       <div class="sidebar-footer">
@@ -667,6 +840,10 @@ tr:last-child td { border-bottom: none; }
           <template v-if="currentPage==='diagnostico'">
             <button class="btn btn-primary" @click="openModal('novoDiagnostico')">+ Diagnóstico</button>
           </template>
+          <template v-if="currentPage==='admin'">
+            <button class="btn btn-ghost btn-sm" @click="refreshAdminConsole">Atualizar Console</button>
+          </template>
+          <button class="btn btn-ghost btn-sm" @click="toggleTheme">{{ currentTheme==='dark' ? '☀️ Claro' : '🌙 Escuro' }}</button>
           <button class="btn btn-ghost btn-sm" @click="doLogout">Sair</button>
         </div>
       </div>
@@ -713,14 +890,30 @@ tr:last-child td { border-bottom: none; }
                 <div class="card-title"><span class="card-icon">🕸️</span> Maturidade Organizacional</div>
                 <span style="font-size:11px;color:var(--text-muted);">Média do portfólio</span>
               </div>
-              <canvas id="radarChart" height="220"></canvas>
+              <div class="chart-box"><canvas id="radarChart"></canvas></div>
             </div>
             <div class="card">
               <div class="card-header">
                 <div class="card-title"><span class="card-icon">📊</span> Evolução Mensal</div>
                 <span style="font-size:11px;color:var(--text-muted);">Últimos 6 meses</span>
               </div>
-              <canvas id="barChart" height="220"></canvas>
+              <div class="chart-box"><canvas id="barChart"></canvas></div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:14px;" v-if="onboardingInfo && onboardingInfo.total">
+            <div class="card-header">
+              <div class="card-title"><span class="card-icon">🧭</span> Onboarding Guiado</div>
+              <span style="font-size:11px;color:var(--text-muted);">{{ onboardingInfo.done }}/{{ onboardingInfo.total }} concluídos</span>
+            </div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">Meta: ativação completa em até 10 minutos.</div>
+            <div class="progress" style="height:8px;background:rgba(255,255,255,0.08);border-radius:8px;overflow:hidden;margin-bottom:12px;">
+              <div :style="{ width: (onboardingInfo.percent || 0) + '%', height:'100%', background:'linear-gradient(90deg,#6366f1,#8b5cf6)' }"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div v-for="s in onboardingInfo.steps" :key="s.id" style="font-size:12px;color:var(--text-secondary);">
+                <span>{{ s.done ? '✅' : '⬜' }}</span> {{ s.label }}
+              </div>
             </div>
           </div>
 
@@ -801,6 +994,7 @@ tr:last-child td { border-bottom: none; }
                     <th>Maturidade</th>
                     <th>Mensalidade</th>
                     <th>Status</th>
+                    <th>Estado Projeto</th>
                     <th>Ações</th>
                   </tr>
                 </thead>
@@ -822,11 +1016,14 @@ tr:last-child td { border-bottom: none; }
                     </td>
                     <td style="color:var(--emerald);">R$ {{ c.mensalidade }}</td>
                     <td><span class="status-badge" :class="'status-'+c.status">{{ c.status }}</span></td>
+                    <td><span class="status-badge">{{ c.estado_projeto || 'descoberta' }}</span></td>
                     <td>
                       <div style="display:flex;gap:4px;">
                         <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('projetos')">📋</button>
                         <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('diagnostico')">🔍</button>
                         <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('portal')">🌐</button>
+                        <button class="btn btn-ghost btn-sm" @click="editarCliente(c)">✏️</button>
+                        <button class="btn btn-ghost btn-sm" @click="inativarCliente(c)">⏸️</button>
                       </div>
                     </td>
                   </tr>
@@ -927,7 +1124,7 @@ tr:last-child td { border-bottom: none; }
             <div class="charts-grid">
               <div class="card">
                 <div class="card-title" style="margin-bottom:14px;">🕸️ Radar de Maturidade</div>
-                <canvas id="diagRadar" height="260"></canvas>
+                <div class="chart-box"><canvas id="diagRadar"></canvas></div>
               </div>
               <div class="card">
                 <div class="card-title" style="margin-bottom:14px;">📊 SWOT Matrix</div>
@@ -1142,8 +1339,8 @@ tr:last-child td { border-bottom: none; }
             <div class="card" style="margin-top:14px;text-align:center;">
               <div style="font-size:20px;margin-bottom:10px;">📄</div>
               <div style="font-family:var(--font-head);font-size:15px;font-weight:700;margin-bottom:6px;">Relatório de Progresso</div>
-              <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Gerado via Google Apps Script HtmlService · PDF com resumo executivo</div>
-              <button class="btn btn-primary" @click="gerarRelatorio">📄 Gerar Relatório PDF</button>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Gerado no servidor e baixado localmente no navegador (sem gravação no Drive)</div>
+              <button class="btn btn-primary" @click="gerarRelatorio">📄 Gerar Relatório</button>
             </div>
           </div>
         </div>
@@ -1152,14 +1349,14 @@ tr:last-child td { border-bottom: none; }
         <div v-if="currentPage==='relatorios'">
           <div class="section-tag">📄 Documentos</div>
           <div class="page-title">Central de Relatórios</div>
-          <div class="page-sub">PDF automático via Google Apps Script HtmlService</div>
+          <div class="page-sub">Download local automático de relatório (sem Google Drive)</div>
 
           <div class="section-grid two-col">
             <div class="card" v-for="r in tiposRelatorio" :key="r.id" style="cursor:pointer;" @click="gerarRelatorioTipo(r)">
               <div style="font-size:28px;margin-bottom:10px;">{{ r.icon }}</div>
               <div style="font-family:var(--font-head);font-size:15px;font-weight:700;margin-bottom:6px;">{{ r.nome }}</div>
               <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">{{ r.desc }}</div>
-              <button class="btn btn-primary btn-sm">Gerar PDF</button>
+              <button class="btn btn-primary btn-sm">Gerar arquivo</button>
             </div>
           </div>
         </div>
@@ -1183,11 +1380,12 @@ tr:last-child td { border-bottom: none; }
               </div>
               <div class="form-group">
                 <label class="form-label">Plano SaaS</label>
-                <select class="form-select">
-                  <option>Pro</option><option>Enterprise</option>
+                <select class="form-select" v-model="configPlanoSaas">
+                  <option value="Pro">Pro</option>
+                  <option value="Enterprise">Enterprise</option>
                 </select>
               </div>
-              <button class="btn btn-primary">Salvar Perfil</button>
+              <button class="btn btn-primary" @click="salvarPlanoSaas" :disabled="loading">Salvar Perfil</button>
             </div>
             <div class="card">
               <div class="card-title" style="margin-bottom:16px;">🗄️ Google Sheets (Backend)</div>
@@ -1226,6 +1424,55 @@ tr:last-child td { border-bottom: none; }
           </div>
         </div>
 
+
+        <!-- =========== ADMIN ENTERPRISE =========== -->
+        <div v-if="currentPage==='admin'">
+          <div class="section-tag">🛡️ Enterprise</div>
+          <div class="page-title">Console Administrativo</div>
+          <div class="page-sub">Tenant, usuários e permissões (RBAC) · API v2</div>
+
+          <div class="card" style="margin-bottom:14px;" v-if="enterpriseBanner.message">
+            <strong>{{ enterpriseBanner.title }}</strong>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">{{ enterpriseBanner.message }}</div>
+          </div>
+
+          <div class="section-grid two-col">
+            <div class="card">
+              <div class="card-title" style="margin-bottom:14px;">🏢 Tenant</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">ID: {{ adminTenant.tenant_id || '—' }}</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Nome: {{ adminTenant.nome || '—' }}</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Plano: {{ billingInfo.plano || user.plano || 'Pro' }}</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Status: {{ billingInfo.status || adminTenant.status || 'active' }}</div>
+              <div style="font-size:12px;color:var(--text-muted);">Limites: {{ billingInfo.limites && billingInfo.limites.max_usuarios || 0 }} usuários · {{ billingInfo.limites && billingInfo.limites.max_clientes || 0 }} clientes</div>
+            </div>
+
+            <div class="card">
+              <div class="card-title" style="margin-bottom:14px;">🔐 Contexto de Acesso</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Perfil: {{ authContext.perfil || 'viewer' }}</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Tenant: {{ authContext.tenant_id || '—' }}</div>
+              <div style="font-size:12px;color:var(--text-muted);">Recursos habilitados por plano: {{ allowedFeatures.join(', ') }}</div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:14px;">
+            <div class="card-title" style="margin-bottom:12px;">👥 Usuários do Tenant</div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Nome</th><th>Email</th><th>Perfil</th><th>Status</th></tr></thead>
+                <tbody>
+                  <tr v-for="u in adminUsers" :key="u.uuid">
+                    <td>{{ u.nome }}</td>
+                    <td>{{ u.email }}</td>
+                    <td>{{ u.perfil }}</td>
+                    <td><span class="status-badge" :class="u.ativo ? 'status-active':'status-pending'">{{ u.ativo ? 'ativo':'inativo' }}</span></td>
+                  </tr>
+                  <tr v-if="!adminUsers.length"><td colspan="4" style="text-align:center;color:var(--text-muted);">Nenhum usuário encontrado.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
       </div><!-- .content -->
     </main>
 
@@ -1235,7 +1482,7 @@ tr:last-child td { border-bottom: none; }
     <div class="modal-overlay" v-if="modal==='novoCliente'" @click.self="closeModal">
       <div class="modal">
         <div class="modal-header">
-          <div class="modal-title">🏢 Novo Cliente</div>
+          <div class="modal-title">{{ form.uuid ? '✏️ Editar Cliente' : '🏢 Novo Cliente' }}</div>
           <button class="modal-close" @click="closeModal">×</button>
         </div>
         <div class="form-group">
@@ -1275,7 +1522,7 @@ tr:last-child td { border-bottom: none; }
         </div>
         <div class="form-footer">
           <button class="btn btn-ghost" @click="closeModal">Cancelar</button>
-          <button class="btn btn-primary" @click="salvarCliente">Salvar Cliente</button>
+          <button class="btn btn-primary" @click="salvarCliente">{{ form.uuid ? 'Atualizar Cliente' : 'Salvar Cliente' }}</button>
         </div>
       </div>
     </div>
@@ -1325,6 +1572,7 @@ tr:last-child td { border-bottom: none; }
           <div class="form-group">
             <label class="form-label">Cliente</label>
             <select class="form-select" v-model="formTarefa.cliente_id">
+              <option value="">Selecione um cliente</option>
               <option v-for="c in clientes" :key="c.uuid" :value="c.uuid">{{ c.empresa_nome }}</option>
             </select>
           </div>
@@ -1349,28 +1597,58 @@ tr:last-child td { border-bottom: none; }
     <div class="modal-overlay" v-if="modal==='verTarefa'" @click.self="closeModal">
       <div class="modal modal-lg" v-if="tarefaSelecionada">
         <div class="modal-header">
-          <div class="modal-title">📋 {{ tarefaSelecionada.descricao }}</div>
+          <div class="modal-title">📋 Editar Tarefa 5W2H</div>
           <button class="modal-close" @click="closeModal">×</button>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-          <div v-for="campo in campos5W2H(tarefaSelecionada)" :key="campo.label" style="padding:12px;background:var(--bg-glass);border-radius:8px;border:1px solid var(--border);">
-            <div style="font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:4px;">{{ campo.label }}</div>
-            <div style="font-size:13px;color:var(--text-primary);">{{ campo.valor || '—' }}</div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">O QUE (What)</label>
+            <input class="form-input" v-model="tarefaSelecionada.descricao">
+          </div>
+          <div class="form-group">
+            <label class="form-label">QUEM (Who)</label>
+            <input class="form-input" v-model="tarefaSelecionada.responsavel">
+          </div>
+          <div class="form-group">
+            <label class="form-label">QUANDO (When)</label>
+            <input class="form-input" type="date" v-model="tarefaSelecionada.prazo_iso">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select class="form-select" v-model="tarefaSelecionada.status">
+              <option value="iniciar">A Iniciar</option>
+              <option value="execucao">Em Execução</option>
+              <option value="validando">Validando</option>
+              <option value="concluido">Concluído</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">ONDE (Where)</label>
+            <input class="form-input" v-model="tarefaSelecionada.onde">
+          </div>
+          <div class="form-group">
+            <label class="form-label">POR QUÊ (Why)</label>
+            <input class="form-input" v-model="tarefaSelecionada.porque">
+          </div>
+          <div class="form-group">
+            <label class="form-label">COMO (How)</label>
+            <input class="form-input" v-model="tarefaSelecionada.como">
+          </div>
+          <div class="form-group">
+            <label class="form-label">QUANTO CUSTA</label>
+            <input class="form-input" v-model="tarefaSelecionada.custo">
+          </div>
+          <div class="form-group">
+            <label class="form-label">COMO MEDIR</label>
+            <input class="form-input" v-model="tarefaSelecionada.indicador">
+          </div>
+          <div class="form-group">
+            <label class="form-label">📎 Evidência</label>
+            <input class="form-input" v-model="tarefaSelecionada.evidencia" placeholder="https://foto.link / descrição">
           </div>
         </div>
-        <div style="margin-top:18px;">
-          <label class="form-label">Status</label>
-          <select class="form-select" style="width:auto;" v-model="tarefaSelecionada.status">
-            <option value="iniciar">A Iniciar</option>
-            <option value="execucao">Em Execução</option>
-            <option value="validando">Validando</option>
-            <option value="concluido">Concluído</option>
-          </select>
-        </div>
-        <div style="margin-top:14px;">
-          <label class="form-label">📎 Evidência (URL ou descrição)</label>
-          <input class="form-input" placeholder="https://foto.link / Descrição da conclusão...">
-        </div>
+
         <div class="form-footer">
           <button class="btn btn-danger btn-sm" @click="excluirTarefa(tarefaSelecionada)">Excluir</button>
           <div style="flex:1;"></div>
@@ -1413,31 +1691,26 @@ tr:last-child td { border-bottom: none; }
 <script>
 const { createApp, ref, computed, onMounted, watch, nextTick } = Vue;
 
-/* ===== MOCK DATA (substituir por google.script.run em produção) ===== */
-const mockClientes = [
-  { uuid:'c-001', empresa_nome:'TechCorp Ltda', segmento:'Tecnologia', status:'active', responsavel:'João Silva', maturidade:72, mensalidade:'3.500', tarefas_abertas:4 },
-  { uuid:'c-002', empresa_nome:'MedSaúde SA', segmento:'Saúde', status:'active', responsavel:'Ana Costa', maturidade:58, mensalidade:'5.200', tarefas_abertas:7 },
-  { uuid:'c-003', empresa_nome:'VarejoMax', segmento:'Varejo', status:'pending', responsavel:'Pedro Lima', maturidade:34, mensalidade:'2.800', tarefas_abertas:12 },
-  { uuid:'c-004', empresa_nome:'IndusPro Ind.', segmento:'Indústria', status:'active', responsavel:'Maria Souza', maturidade:81, mensalidade:'7.000', tarefas_abertas:2 },
-  { uuid:'c-005', empresa_nome:'EduFuture', segmento:'Educação', status:'paused', responsavel:'Carlos Alves', maturidade:45, mensalidade:'1.800', tarefas_abertas:0 },
-];
-const mockTarefas = [
-  { uuid:'t-001', cliente_id:'c-001', descricao:'Mapear processos de TI', responsavel:'João Silva', prazo_iso:'2026-03-20', status:'execucao', tipo:'Processo', onde:'TI', porque:'Diagnóstico de gaps', como:'Entrevistas', custo:'R$ 0', indicador:'100% processos mapeados' },
-  { uuid:'t-002', cliente_id:'c-001', descricao:'Implantar gestão visual 5S', responsavel:'Ana Costa', prazo_iso:'2026-04-01', status:'iniciar', tipo:'5S', onde:'Operações', porque:'Reduzir desperdícios', como:'Treinamento', custo:'R$ 1.200', indicador:'Auditoria 5S aprovada' },
-  { uuid:'t-003', cliente_id:'c-002', descricao:'Revisar fluxo de atendimento', responsavel:'Pedro Lima', prazo_iso:'2026-03-15', status:'validando', tipo:'Processo', onde:'Recepção', porque:'Reduzir espera', como:'Mapeamento AS-IS/TO-BE', custo:'R$ 500', indicador:'NPS > 80' },
-  { uuid:'t-004', cliente_id:'c-002', descricao:'Treinamento de liderança', responsavel:'Carlos Alves', prazo_iso:'2026-05-10', status:'iniciar', tipo:'RH', onde:'Toda empresa', porque:'Desenvolver gestores', como:'Workshop 40h', custo:'R$ 8.000', indicador:'Avaliação 360° melhora 20%' },
-  { uuid:'t-005', cliente_id:'c-003', descricao:'Reorganização de estoque', responsavel:'Maria Souza', prazo_iso:'2026-02-28', status:'concluido', tipo:'Logística', onde:'Depósito', porque:'Reduzir perdas', como:'Kanban físico', custo:'R$ 2.000', indicador:'Quebra < 1%' },
-  { uuid:'t-006', cliente_id:'c-001', descricao:'Definir OKRs corporativos Q2', responsavel:'João Silva', prazo_iso:'2026-04-15', status:'iniciar', tipo:'Estratégia', onde:'Diretoria', porque:'Alinhamento estratégico', como:'Workshops de OKR', custo:'R$ 600', indicador:'OKRs definidos e comunicados' },
-];
-
 createApp({
   setup() {
     /* STATE */
     const loading = ref(false);
+    const appState = ref('booting'); // booting | unauthenticated | authenticated | error
     const authenticated = ref(false);
+    const sessionToken = ref('');
+    const showSetupAction = ref(false);
+    const authMode = ref('login');
     const loginEmail = ref('');
     const loginPass = ref('');
+    const signupNome = ref('');
+    const signupEmail = ref('');
+    const signupPass = ref('');
+    const resetEmail = ref('');
+    const resetToken = ref('');
+    const resetPass = ref('');
+    const resetPassConfirm = ref('');
     const loginError = ref('');
+    const currentTheme = ref('dark');
     const currentPage = ref('dashboard');
     const modal = ref(null);
     const busca = ref('');
@@ -1447,11 +1720,23 @@ createApp({
     const linkPortal = ref('');
     const showPortalPreview = ref(false);
     const tarefaSelecionada = ref(null);
+    const toasts = ref([]);
+    const systemModal = ref({ open: false, title: '', message: '' });
+    const LIST_PAGE_SIZE = 200;
 
     const user = ref({ nome: 'Apollo Consultor', email: 'apollo@sae.app', plano: 'Pro', initials: 'AC' });
+    const authContext = ref({ tenant_id: '', perfil: 'viewer' });
+    const adminTenant = ref({});
+    const adminUsers = ref([]);
+    const billingInfo = ref({ status: 'active', plano: 'Pro', limites: { max_usuarios: 0, max_clientes: 0 } });
+    const onboardingInfo = ref({ steps: [], done: 0, total: 0, percent: 0 });
+    const configPlanoSaas = ref('Pro');
+    const sessionInvalidHandled = ref(false);
+    let refreshTarefasInFlight = null;
+    let refreshTarefasSeq = 0;
 
-    const clientes = ref([...mockClientes]);
-    const tarefas = ref([...mockTarefas]);
+    const clientes = ref([]);
+    const tarefas = ref([]);
 
     const form = ref({ empresa_nome:'', segmento:'Tecnologia', status:'active', responsavel:'', mensalidade:'', obs:'' });
     const formTarefa = ref({ descricao:'', responsavel:'', prazo_iso:'', onde:'', porque:'', como:'', custo:'', indicador:'', cliente_id:'', status:'iniciar', tipo:'Processo' });
@@ -1467,37 +1752,85 @@ createApp({
       )
     );
 
+    function toNumberFromCurrency(value) {
+      if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+      if (typeof value !== 'string') return 0;
+      const normalized = value.replace(/\./g, '').replace(',', '.').replace(/[^0-9.-]/g, '');
+      const parsed = Number(normalized);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+
+    const allowedFeatures = computed(() => {
+      const plano = String((user.value && user.value.plano) || 'Pro');
+      if (plano === 'Enterprise') return ['dashboard','clientes','diagnostico','projetos','financeiro','portal','relatorios','configuracoes','admin'];
+      return ['dashboard','clientes','diagnostico','projetos','financeiro','portal','relatorios','configuracoes'];
+    });
+
+    function hasPermission(recurso) {
+      const perfil = String((authContext.value && authContext.value.perfil) || 'viewer').toLowerCase();
+      const map = {
+        owner: ['*'],
+        admin: ['*'],
+        manager: ['clientes.*','diagnosticos.*','tarefas.*','financeiro.*','dashboard.kpis','dashboard.pipeline','onboarding.status','relatorios.gerar','portal.link','auditoria.listar','admin.tenant.obter','admin.tenant.atualizar','admin.usuarios.listar','billing.assinatura.obter','billing.assinatura.alterarPlano','billing.assinatura.status'],
+        analyst: ['clientes.listar','diagnosticos.*','tarefas.*','financeiro.listar','dashboard.kpis','dashboard.pipeline','onboarding.status','relatorios.gerar','portal.link','admin.usuarios.listar','billing.assinatura.obter','billing.assinatura.status'],
+        viewer: ['clientes.listar','diagnosticos.listar','tarefas.listar','financeiro.listar','dashboard.kpis','dashboard.pipeline','onboarding.status','relatorios.gerar','portal.link','billing.assinatura.obter']
+      };
+      const recursos = map[perfil] || map.viewer;
+      if (recurso === 'auth.verificar') return true;
+      if (recursos.includes('*')) return true;
+      if (recursos.includes(recurso)) return true;
+      const modulo = recurso.split('.')[0];
+      if (recursos.includes(modulo + '.*')) return true;
+      return false;
+    }
+
+    function canAccessPage(page) {
+      const rules = {
+        dashboard: 'dashboard.kpis',
+        clientes: 'clientes.listar',
+        diagnostico: 'diagnosticos.listar',
+        projetos: 'tarefas.listar',
+        financeiro: 'financeiro.listar',
+        portal: 'portal.link',
+        relatorios: 'relatorios.gerar',
+        configuracoes: 'auth.verificar',
+        admin: 'admin.usuarios.listar'
+      };
+      const featOk = allowedFeatures.value.includes(page);
+      return featOk && hasPermission(rules[page] || 'auth.verificar');
+    }
+
+    const enterpriseBanner = computed(() => {
+      if (!canAccessPage('admin')) {
+        return { title: 'Plano/Permissão', message: 'Seu perfil ou plano atual não habilita o Console Administrativo Enterprise.' };
+      }
+      if (billingInfo.value && String(billingInfo.value.status || '').toLowerCase() !== 'active') {
+        return { title: 'Tenant inativo', message: 'O tenant está inativo. Recursos críticos podem ser bloqueados.' };
+      }
+      return { title: '', message: '' };
+    });
+
     const kpis = computed(() => ({
       clientesAtivos: clientes.value.filter(c => c.status === 'active').length,
       roiMedio: 34.7,
       tarefasConcluidas: tarefas.value.filter(t => t.status === 'concluido').length,
-      receita: clientes.value.filter(c=>c.status==='active').reduce((a,c)=>a+parseFloat(c.mensalidade.replace('.','').replace(',','.')),0).toLocaleString('pt-BR')
+      receita: clientes.value
+        .filter(c => c.status === 'active')
+        .reduce((a, c) => a + toNumberFromCurrency(c.mensalidade), 0)
+        .toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     }));
 
+
+    const authPrimaryButtonLabel = computed(() => {
+      if (authMode.value === 'login') return 'Entrar no Sistema';
+      if (authMode.value === 'signup') return 'Criar conta e entrar';
+      if (authMode.value === 'forgot') return 'Enviar código de recuperação';
+      return 'Redefinir senha';
+    });
+
     /* DIAGNÓSTICO */
-    const diagnosticos = ref([
-      {
-        uuid: 'd-001', tipo_matriz: 'Diagnóstico 5S', icon: '🔍',
-        cliente_nome: 'TechCorp Ltda', score: 68, status: 'Concluído',
-        dimensoes: [
-          { nome: 'Organização', valor: 75, cor: '#6366f1' },
-          { nome: 'Limpeza', valor: 80, cor: '#14b8a6' },
-          { nome: 'Padronização', valor: 55, cor: '#f59e0b' },
-          { nome: 'Disciplina', valor: 62, cor: '#10b981' },
-          { nome: 'Utilização', valor: 70, cor: '#06b6d4' },
-        ]
-      },
-      {
-        uuid: 'd-002', tipo_matriz: 'Clima Organizacional', icon: '🌡️',
-        cliente_nome: 'MedSaúde SA', score: 52, status: 'Em análise',
-        dimensoes: [
-          { nome: 'Motivação', valor: 48, cor: '#f43f5e' },
-          { nome: 'Comunicação', valor: 55, cor: '#6366f1' },
-          { nome: 'Liderança', valor: 60, cor: '#14b8a6' },
-          { nome: 'Cultura', valor: 45, cor: '#f59e0b' },
-        ]
-      }
-    ]);
+    const diagnosticos = ref([]);
 
     const questionario5S = ref([
       { pergunta: 'Os materiais desnecessários são descartados regularmente?', resposta: 0 },
@@ -1515,11 +1848,41 @@ createApp({
       { id: 'concluido', label: 'Concluído' },
     ];
 
-    const tarefasPorStatus = (status) =>
-      tarefas.value.filter(t =>
-        t.status === status &&
-        (!filtroCliente.value || t.cliente_id === filtroCliente.value)
+    function normalizeIdSafe(value) {
+      return String(value || '').trim();
+    }
+
+    function normalizeTaskStatus(value) {
+      const raw = String(value || '').trim().toLowerCase();
+      const map = {
+        iniciar: 'iniciar',
+        inicio: 'iniciar',
+        'a iniciar': 'iniciar',
+        a_iniciar: 'iniciar',
+        execucao: 'execucao',
+        execução: 'execucao',
+        'em execução': 'execucao',
+        em_execucao: 'execucao',
+        validando: 'validando',
+        validacao: 'validando',
+        validação: 'validando',
+        concluido: 'concluido',
+        concluído: 'concluido',
+        deleted: 'deleted',
+        excluido: 'deleted',
+        excluído: 'deleted'
+      };
+      return map[raw] || 'iniciar';
+    }
+
+    const tarefasPorStatus = (status) => {
+      const statusNormalized = normalizeTaskStatus(status);
+      const filtroClienteNormalizado = normalizeIdSafe(filtroCliente.value);
+      return tarefas.value.filter(t =>
+        normalizeTaskStatus(t.status) === statusNormalized &&
+        (!filtroClienteNormalizado || normalizeIdSafe(t.cliente_id) === filtroClienteNormalizado)
       );
+    };
 
     const tarefasDoCliente = computed(() =>
       clienteSelecionado.value
@@ -1528,14 +1891,8 @@ createApp({
     );
 
     /* FINANCEIRO */
-    const financeiro = ref({ receitaTotal: '18.500', inadimplente: '2.800', potencial: '21.300' });
-    const pagamentos = ref([
-      { uuid:'p-001', cliente:'TechCorp Ltda', valor:'3.500', vencimento:'05/03/2026', pago: true },
-      { uuid:'p-002', cliente:'MedSaúde SA', valor:'5.200', vencimento:'10/03/2026', pago: true },
-      { uuid:'p-003', cliente:'VarejoMax', valor:'2.800', vencimento:'15/03/2026', pago: false },
-      { uuid:'p-004', cliente:'IndusPro Ind.', valor:'7.000', vencimento:'01/03/2026', pago: true },
-      { uuid:'p-005', cliente:'EduFuture', valor:'1.800', vencimento:'20/03/2026', pago: false },
-    ]);
+    const financeiro = ref({ receitaTotal: '0', inadimplente: '0', potencial: '0' });
+    const pagamentos = ref([]);
 
     /* PORTAL */
     const metasCliente = [
@@ -1554,7 +1911,7 @@ createApp({
 
     /* CONFIG */
     const sheetsConfig = [
-      { nome: 'consultores', cols: 'uuid · nome · email_hash · plano_saas · data_adesao' },
+      { nome: 'consultores', cols: 'uuid · nome · email · email_hash · senha_hash · reset_token_hash · reset_expira_iso' },
       { nome: 'clientes', cols: 'uuid · consultor_id · empresa_nome · segmento · status' },
       { nome: 'diagnosticos', cols: 'uuid · cliente_id · tipo_matriz · respostas_json · score' },
       { nome: 'tarefas_5w2h', cols: 'uuid · cliente_id · descricao · responsavel · prazo_iso · status' },
@@ -1568,6 +1925,10 @@ createApp({
 
     function initCharts() {
       nextTick(() => {
+        const mediaMaturidade = clientes.value.length
+          ? Math.round(clientes.value.reduce(function(acc, c){ return acc + Number(c.maturidade || 0); }, 0) / clientes.value.length)
+          : 0;
+
         // Radar principal
         const rCtx = document.getElementById('radarChart');
         if (rCtx) {
@@ -1578,7 +1939,7 @@ createApp({
               labels: ['Processos', 'Pessoas', 'Tecnologia', 'Liderança', 'Cultura', 'Resultados'],
               datasets: [{
                 label: 'Maturidade Média',
-                data: [68, 75, 52, 80, 61, 73],
+                data: [mediaMaturidade, mediaMaturidade, mediaMaturidade, mediaMaturidade, mediaMaturidade, mediaMaturidade],
                 fill: true,
                 backgroundColor: 'rgba(99,102,241,0.15)',
                 borderColor: '#6366f1',
@@ -1596,9 +1957,10 @@ createApp({
                   ticks: { display: false },
                   grid: { color: 'rgba(255,255,255,0.06)' },
                   angleLines: { color: 'rgba(255,255,255,0.06)' },
-                  pointLabels: { color: '#94a3b8', font: { size: 11, family: 'DM Sans' } }
+                  pointLabels: { color: '#94a3b8', font: { size: 11, family: 'Roboto' } }
                 }
               },
+              animation: { duration: 0 },
               plugins: { legend: { display: false } }
             }
           });
@@ -1614,11 +1976,11 @@ createApp({
               labels: ['Out', 'Nov', 'Dez', 'Jan', 'Fev', 'Mar'],
               datasets: [
                 {
-                  label: 'Clientes', data: [3, 4, 4, 5, 5, 5],
+                  label: 'Clientes', data: [clientes.value.length, clientes.value.length, clientes.value.length, clientes.value.length, clientes.value.length, clientes.value.length],
                   backgroundColor: 'rgba(99,102,241,0.5)', borderRadius: 6, borderSkipped: false
                 },
                 {
-                  label: 'Tarefas concluídas', data: [8, 12, 15, 18, 22, 26],
+                  label: 'Tarefas concluídas', data: [tarefas.value.filter(function(t){ return t.status === 'concluido'; }).length, tarefas.value.filter(function(t){ return t.status === 'concluido'; }).length, tarefas.value.filter(function(t){ return t.status === 'concluido'; }).length, tarefas.value.filter(function(t){ return t.status === 'concluido'; }).length, tarefas.value.filter(function(t){ return t.status === 'concluido'; }).length, tarefas.value.filter(function(t){ return t.status === 'concluido'; }).length],
                   backgroundColor: 'rgba(20,184,166,0.5)', borderRadius: 6, borderSkipped: false
                 }
               ]
@@ -1631,7 +1993,8 @@ createApp({
               scales: {
                 x: { grid: { display: false }, ticks: { color: '#475569' } },
                 y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#475569' } }
-              }
+              },
+              animation: { duration: 0 }
             }
           });
         }
@@ -1640,13 +2003,17 @@ createApp({
         const dCtx = document.getElementById('diagRadar');
         if (dCtx) {
           if (diagRadarInst) diagRadarInst.destroy();
+          const diagBase = diagnosticos.value.length ? (diagnosticos.value[0].dimensoes || []) : [];
+          const diagLabels = diagBase.length ? diagBase.map(function(d){ return d.nome; }) : ['D1', 'D2', 'D3', 'D4', 'D5'];
+          const diagData = diagBase.length ? diagBase.map(function(d){ return Number(d.valor || 0); }) : [0,0,0,0,0];
+
           diagRadarInst = new Chart(dCtx, {
             type: 'radar',
             data: {
-              labels: ['Seiri', 'Seiton', 'Seiso', 'Seiketsu', 'Shitsuke'],
+              labels: diagLabels,
               datasets: [{
                 label: 'Resultado',
-                data: [75, 80, 55, 62, 70],
+                data: diagData,
                 fill: true,
                 backgroundColor: 'rgba(20,184,166,0.15)',
                 borderColor: '#14b8a6',
@@ -1667,7 +2034,8 @@ createApp({
                   pointLabels: { color: '#94a3b8', font: { size: 11 } }
                 }
               },
-              plugins: { legend: { display: false } }
+              plugins: { legend: { display: false } },
+              animation: { duration: 0 }
             }
           });
         }
@@ -1685,53 +2053,838 @@ createApp({
         portal: '🌐 Portal do Cliente',
         relatorios: '📄 Central de Relatórios',
         configuracoes: '⚙️ Configurações',
+        admin: '🛡️ Console Admin Enterprise',
       };
       return map[currentPage.value] || 'SAE';
     });
 
     function navigate(page) {
-      loading.value = true;
-      setTimeout(() => {
-        currentPage.value = page;
-        loading.value = false;
-        if (page === 'dashboard' || page === 'diagnostico') {
-          setTimeout(initCharts, 100);
-        }
-      }, 400);
+      if (!canAccessPage(page)) {
+        notify('Acesso bloqueado para esta área com o perfil/plano atual.', 'info');
+        return;
+      }
+      currentPage.value = page;
+      if (page === 'dashboard' || page === 'diagnostico') {
+        setTimeout(initCharts, 100);
+      }
+      if (page === 'projetos' && sessionToken.value) {
+        refreshTarefas(sessionToken.value, false)
+          .catch(function(err) {
+            notify((err && err.message) || 'Falha ao atualizar tarefas.', 'error');
+          });
+      }
+      if (page === 'clientes' && sessionToken.value) {
+        refreshClientes(sessionToken.value, true)
+          .catch(function(err) {
+            if (!handleSessionInvalid(err)) console.error('[navigate/clientes]', err);
+          });
+      }
+      if (page === 'financeiro' && sessionToken.value) {
+        refreshFinanceiro(sessionToken.value, true)
+          .catch(function(err) {
+            if (!handleSessionInvalid(err)) console.error('[navigate/financeiro]', err);
+          });
+      }
+      if (page === 'admin' && sessionToken.value) {
+        refreshAdminConsole();
+      }
     }
 
     function selectCliente(c) { clienteSelecionado.value = c; }
 
+    function hasGasRuntime() {
+      return typeof google !== 'undefined' && google.script && google.script.run;
+    }
+
+    function setAuthState(nextState, errorMessage = '') {
+      appState.value = nextState;
+      authenticated.value = nextState === 'authenticated';
+      loginError.value = errorMessage || '';
+    }
+
+    function createGasClient() {
+      const requestInterceptors = [];
+      const responseInterceptors = [];
+      const errorInterceptors = [];
+      const memoryCache = new Map();
+      const inFlight = new Map();
+      let pending = 0;
+
+      function toggleLoading(delta, silent) {
+        if (silent) return;
+        pending = Math.max(0, pending + delta);
+        loading.value = pending > 0;
+      }
+
+      function applyInterceptors(list, value) {
+        return list.reduce((acc, fn) => fn(acc) || acc, value);
+      }
+
+      function safeJsonParse(raw) {
+        if (typeof raw !== 'string') return { ok: true, value: raw };
+        const trimmed = raw.trim();
+        if (!trimmed) return { ok: false, error: new Error('Resposta vazia da API.') };
+        try {
+          return { ok: true, value: JSON.parse(trimmed) };
+        } catch (err) {
+          return { ok: false, error: new Error('Resposta JSON inválida da API.') };
+        }
+      }
+
+      function waitMs(ms) {
+        return new Promise(function(resolve) { setTimeout(resolve, ms); });
+      }
+
+      function runRpc(methodName, payload, timeoutMs) {
+        return new Promise((resolve, reject) => {
+          let done = false;
+          const timer = setTimeout(() => {
+            if (done) return;
+            done = true;
+            reject(new Error('Timeout de comunicação com GAS.'));
+          }, timeoutMs);
+
+          try {
+            let runner = google.script.run
+              .withSuccessHandler((res) => {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                resolve(res);
+              })
+              .withFailureHandler((err) => {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                reject(err instanceof Error ? err : new Error(String(err)));
+              });
+
+            if (payload === undefined) {
+              runner[methodName]();
+            } else {
+              runner[methodName](payload);
+            }
+          } catch (err) {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            reject(err);
+          }
+        });
+      }
+
+      async function call(methodName, payload, options = {}) {
+        const cfg = applyInterceptors(requestInterceptors, {
+          methodName,
+          payload,
+          retries: Number(options.retries !== undefined ? options.retries : 2),
+          timeoutMs: Number(options.timeoutMs !== undefined ? options.timeoutMs : 20000),
+          cacheKey: options.cacheKey || null,
+          cacheTtlMs: Number(options.cacheTtlMs !== undefined ? options.cacheTtlMs : 0),
+          dedupeKey: options.dedupeKey || null,
+          silent: !!options.silent
+        });
+
+        if (!hasGasRuntime()) {
+          const err = new Error('Google Apps Script indisponível neste ambiente. Faça o deploy via Web App.');
+          applyInterceptors(errorInterceptors, err);
+          throw err;
+        }
+
+        if (cfg.cacheKey) {
+          const cached = memoryCache.get(cfg.cacheKey);
+          if (cached && cached.expiresAt > Date.now()) {
+            return cached.value;
+          }
+        }
+
+        if (cfg.dedupeKey && inFlight.has(cfg.dedupeKey)) {
+          return inFlight.get(cfg.dedupeKey);
+        }
+
+        const execPromise = (async function() {
+          toggleLoading(1, cfg.silent);
+          let attempt = 0;
+          try {
+            while (attempt <= cfg.retries) {
+              try {
+                const result = await runRpc(cfg.methodName, cfg.payload, cfg.timeoutMs);
+                const parsed = safeJsonParse(result);
+                if (!parsed.ok) throw parsed.error;
+
+                const finalResult = applyInterceptors(responseInterceptors, parsed.value);
+                if (cfg.cacheKey && cfg.cacheTtlMs > 0) {
+                  memoryCache.set(cfg.cacheKey, { value: finalResult, expiresAt: Date.now() + cfg.cacheTtlMs });
+                }
+                return finalResult;
+              } catch (err) {
+                attempt += 1;
+                if (attempt > cfg.retries) {
+                  applyInterceptors(errorInterceptors, err);
+                  throw err;
+                }
+                const backoff = Math.min(2000, 300 * Math.pow(2, attempt - 1));
+                await waitMs(backoff);
+              }
+            }
+          } finally {
+            toggleLoading(-1, cfg.silent);
+          }
+        })();
+
+        if (cfg.dedupeKey) {
+          inFlight.set(cfg.dedupeKey, execPromise);
+          execPromise.finally(function() {
+            if (inFlight.get(cfg.dedupeKey) === execPromise) inFlight.delete(cfg.dedupeKey);
+          });
+        }
+
+        return execPromise;
+      }
+
+      return {
+        call,
+        api(params, options = {}) {
+          return call('api', params, options);
+        },
+        onRequest(fn) { requestInterceptors.push(fn); },
+        onResponse(fn) { responseInterceptors.push(fn); },
+        onError(fn) { errorInterceptors.push(fn); },
+        clearCache() { memoryCache.clear(); },
+        invalidateCacheByPrefix(prefix) {
+          const p = String(prefix || '');
+          if (!p) return;
+          Array.from(memoryCache.keys()).forEach(function(k) {
+            if (String(k).indexOf(p) === 0) memoryCache.delete(k);
+          });
+        }
+      };
+    }
+
+    const gasClient = createGasClient();
+    gasClient.onResponse((res) => {
+      if (!res) return res;
+      if (typeof res === 'object' && res.request_id) {
+        window.__lastRequestId = res.request_id;
+        window.__lastClientRequestId = res.client_request_id || window.__lastClientRequestId || '';
+      }
+      return res;
+    });
+    gasClient.onError((err) => {
+      const rid = window.__lastRequestId || 'n/a';
+      const crid = window.__lastClientRequestId || 'n/a';
+      console.error('GAS RPC error:', err && err.message ? err.message : err, 'request_id=', rid, 'client_request_id=', crid);
+      return err;
+    });
+
+
+    function generateClientRequestId(prefix) {
+      const p = String(prefix || 'web').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'web';
+      const rand = Math.random().toString(36).slice(2, 10);
+      return p + '_' + Date.now().toString(36) + '_' + rand;
+    }
+
+    function apiCall(modulo, acao, dados = {}, options = {}) {
+      const isPublic = !!options.public;
+      const token = options.token !== undefined ? options.token : sessionToken.value;
+      if (!isPublic && !normalizeIdSafe(token)) {
+        return Promise.reject(new Error('Acesso negado: Token de sessão ausente.'));
+      }
+      const clientRequestId = options.requestId || generateClientRequestId(modulo + '_' + acao);
+      window.__lastClientRequestId = clientRequestId;
+      return gasClient.api(
+        { modulo: modulo, acao: acao, token: token, dados: dados, request_id: clientRequestId },
+        {
+          retries: options.retries !== undefined ? options.retries : 1,
+          timeoutMs: options.timeoutMs || 20000,
+          silent: !!options.silent,
+          cacheKey: options.cacheKey || null,
+          cacheTtlMs: options.cacheTtlMs || 0,
+          dedupeKey: options.dedupeKey || null
+        }
+      ).then(function(res) {
+        if (!res) throw new Error('Resposta vazia da API.');
+        if (res.sucesso === false) {
+          const err = new Error(res.erro || 'Falha na API.');
+          err.code = res.codigo || 'business_error';
+          err.api = res;
+          throw err;
+        }
+        const dadosMerge = (res && res.dados && typeof res.dados === 'object') ? res.dados : {};
+        return Object.assign({}, res, dadosMerge);
+      });
+    }
+
+    function classifyError(err) {
+      const msg = String((err && err.message) || err || '');
+      const lower = msg.toLowerCase();
+      if (lower.indexOf('timeout de comunicação com gas') >= 0 || lower.indexOf('resposta vazia da api') >= 0 || lower.indexOf('resposta json inválida') >= 0) {
+        return { tipo: 'tecnico', mensagem: 'Instabilidade de comunicação com o servidor. Tente novamente em instantes.' };
+      }
+      return { tipo: 'negocio', mensagem: msg || 'Não foi possível concluir a operação.' };
+    }
+
+    function getOperationalProtocolId(err) {
+      return (err && err.api && (err.api.request_id || err.api.client_request_id)) || window.__lastRequestId || window.__lastClientRequestId || '';
+    }
+
+    function showOperationalError(err, ctxLabel) {
+      const parsed = classifyError(err);
+      const prefix = parsed.tipo === 'tecnico' ? '[Erro técnico]' : '[Regra de negócio]';
+      const rid = getOperationalProtocolId(err);
+      const suffix = rid ? (' · protocolo: ' + rid) : '';
+      notify(prefix + ' ' + (ctxLabel ? (ctxLabel + ': ') : '') + parsed.mensagem + suffix, parsed.tipo === 'tecnico' ? 'info' : 'error');
+    }
+
+    function notifyOperationError(err, ctxLabel) {
+      return showOperationalError(err, ctxLabel);
+    }
+
+    function notify(msg, tipo) {
+      const id = String(Date.now()) + '_' + String(Math.random()).slice(2, 8);
+      toasts.value.push({ id: id, msg: msg, tipo: tipo || 'info' });
+      setTimeout(function() {
+        toasts.value = toasts.value.filter(function(t) { return t.id !== id; });
+      }, 3200);
+    }
+
+    function notifyModal(title, message) {
+      systemModal.value = { open: true, title: title || 'Aviso', message: message || '' };
+    }
+
+    function closeSystemModal() {
+      systemModal.value.open = false;
+    }
+
+    function isSessionInvalidError(err) {
+      const msg = String((err && err.message) || err || '').toLowerCase();
+      return msg.indexOf('sessão inválida') >= 0 || msg.indexOf('session_invalid') >= 0;
+    }
+
+    function handleSessionInvalid(err) {
+      if (!isSessionInvalidError(err)) return false;
+      if (sessionInvalidHandled.value) return true;
+      sessionInvalidHandled.value = true;
+      const rid = getOperationalProtocolId(err);
+      const suffix = rid ? (' · protocolo: ' + rid) : '';
+      notify('Sua sessão expirou ou ficou inconsistente. Faça login novamente.' + suffix, 'error');
+      doLogout();
+      return true;
+    }
+
+    async function carregarDadosIniciais() {
+      if (!sessionToken.value) return;
+      const token = sessionToken.value;
+
+      await refreshClientes(token, true);
+
+      const resultados = await Promise.allSettled([
+        refreshDashboard(token, true),
+        refreshTarefas(token, true),
+        refreshDiagnosticos(token, true),
+        refreshFinanceiro(token, true)
+      ]);
+
+      const falhas = resultados.filter(function(r) { return r.status === 'rejected'; });
+      if (falhas.length) {
+        console.warn('[carregarDadosIniciais] falhas parciais:', falhas.map(function(f) { return f.reason && f.reason.message ? f.reason.message : String(f.reason); }));
+        const falhaSessao = falhas.find(function(f) { return isSessionInvalidError(f.reason); });
+        if (falhaSessao) handleSessionInvalid(falhaSessao.reason);
+      }
+    }
+
+    function refreshDashboard(token, silent) {
+      const t = token || sessionToken.value;
+      if (!t) return Promise.resolve();
+      return apiCall('dashboard', 'kpis', {}, {
+        token: t,
+        retries: 1,
+        silent: !!silent,
+        dedupeKey: 'dashboard:kpis:' + t,
+        cacheKey: 'dashboard:kpis:' + t,
+        cacheTtlMs: 4000
+      })
+        .then(function(kpiRes) {
+          if (kpiRes && kpiRes.sucesso && kpiRes.kpis) {
+            financeiro.value = {
+              receitaTotal: String(kpiRes.kpis.receitaMensal || '0'),
+              inadimplente: financeiro.value.inadimplente,
+              potencial: String(kpiRes.kpis.receitaMensal || '0')
+            };
+          }
+        })
+        .catch(function(err) {
+          if (!handleSessionInvalid(err)) console.error('[refreshDashboard] erro:', err);
+          throw err;
+        });
+    }
+
+    function unwrapApiList(res, key, opts = {}) {
+      const strict = opts.strict !== false;
+      if (!res) {
+        if (!strict) return [];
+        throw new Error('Resposta vazia da API.');
+      }
+      if (res.sucesso === false) {
+        throw new Error(res.erro || ('Falha ao carregar ' + key));
+      }
+      if (Array.isArray(res[key])) {
+        return res[key];
+      }
+      if (res.dados && Array.isArray(res.dados[key])) {
+        return res.dados[key];
+      }
+      return [];
+    }
+
+    function refreshClientes(token, silent, forceFresh) {
+      const t = token || sessionToken.value;
+      if (!t) return Promise.resolve();
+      return apiCall('clientes', 'listar', { page: 1, pageSize: LIST_PAGE_SIZE, no_cache: !!forceFresh }, {
+        token: t,
+        retries: 1,
+        silent: !!silent,
+        dedupeKey: 'clientes:listar:' + t,
+        cacheKey: forceFresh ? null : ('clientes:listar:' + t),
+        cacheTtlMs: forceFresh ? 0 : 4000
+      })
+        .then(function(res) {
+          if (!res) throw new Error('Resposta vazia ao listar clientes.');
+          if (res.sucesso === false) throw new Error(res.erro || 'Falha ao listar clientes.');
+
+          const incoming =
+            (Array.isArray(res.clientes) && res.clientes) ||
+            (res.dados && Array.isArray(res.dados.clientes) && res.dados.clientes) ||
+            [];
+          clientes.value = incoming.map(function(c) {
+            return Object.assign({}, c, { uuid: c.uuid || c.id || '' });
+          });
+
+          if (!normalizeIdSafe(formDiag.value.cliente_id) && clientes.value.length) {
+            formDiag.value.cliente_id = normalizeIdSafe(clienteSelecionado.value && clienteSelecionado.value.uuid) || normalizeIdSafe(clientes.value[0].uuid);
+          }
+          console.log('[refreshClientes] clientes carregados:', clientes.value.length);
+        })
+        .catch(function(err) {
+          if (!handleSessionInvalid(err)) console.error('[refreshClientes] erro:', err);
+          throw err;
+        });
+    }
+
+    function refreshTarefas(token, silent, forceFresh) {
+      const t = token || sessionToken.value;
+      if (!t) return Promise.resolve();
+      console.log('[refreshTarefas] token?', !!t, 'clienteFiltro=', filtroCliente.value);
+      const payload = { modulo: 'tarefas', acao: 'listar', token: t, dados: { page: 1, pageSize: LIST_PAGE_SIZE, no_cache: !!forceFresh } };
+      if (refreshTarefasInFlight) return refreshTarefasInFlight;
+      const seq = ++refreshTarefasSeq;
+      refreshTarefasInFlight = apiCall(payload.modulo, payload.acao, payload.dados, {
+        token: payload.token,
+        retries: 1,
+        silent: !!silent,
+        dedupeKey: 'tarefas:listar:' + (payload.token || ''),
+        cacheKey: forceFresh ? null : ('tarefas:listar:' + (payload.token || '')),
+        cacheTtlMs: forceFresh ? 0 : 4000
+      })
+        .then(function(res) {
+          if (seq !== refreshTarefasSeq) return;
+          console.log('[refreshTarefas] resposta bruta:', res);
+          const incoming = unwrapApiList(res, 'tarefas');
+          tarefas.value = incoming.map(function(task) {
+            return {
+              ...task,
+              uuid: task.uuid || task.id || '',
+              status: normalizeTaskStatus(task.status),
+              cliente_id: normalizeIdSafe(task.cliente_id)
+            };
+          });
+          console.log('[refreshTarefas] tarefas carregadas:', tarefas.value.length);
+        })
+        .catch(function(err) {
+          if (!handleSessionInvalid(err)) console.error('[refreshTarefas] erro:', err);
+          throw err;
+        })
+        .finally(function() {
+          if (refreshTarefasInFlight) refreshTarefasInFlight = null;
+        });
+      return refreshTarefasInFlight;
+    }
+
+    function refreshDiagnosticos(token, silent, forceFresh) {
+      const t = token || sessionToken.value;
+      if (!t) return Promise.resolve();
+      return apiCall('diagnosticos', 'listar', { page: 1, pageSize: LIST_PAGE_SIZE, no_cache: !!forceFresh }, {
+        token: t,
+        retries: 1,
+        silent: !!silent,
+        dedupeKey: 'diagnosticos:listar:' + t,
+        cacheKey: forceFresh ? null : ('diagnosticos:listar:' + t),
+        cacheTtlMs: forceFresh ? 0 : 4000
+      })
+        .then(function(res) {
+          if (!res) throw new Error('Resposta vazia ao listar diagnósticos.');
+          if (res.sucesso === false) throw new Error(res.erro || 'Falha ao listar diagnósticos.');
+
+          diagnosticos.value =
+            (Array.isArray(res.diagnosticos) && res.diagnosticos) ||
+            (res.dados && Array.isArray(res.dados.diagnosticos) && res.dados.diagnosticos) ||
+            [];
+        })
+        .catch(function(err) {
+          if (!handleSessionInvalid(err)) console.error('[refreshDiagnosticos] erro:', err);
+          throw err;
+        });
+    }
+
+    function refreshFinanceiro(token, silent, forceFresh) {
+      const t = token || sessionToken.value;
+      if (!t) return Promise.resolve();
+      return apiCall('financeiro', 'listar', { page: 1, pageSize: LIST_PAGE_SIZE, no_cache: !!forceFresh }, {
+        token: t,
+        retries: 1,
+        silent: !!silent,
+        dedupeKey: 'financeiro:listar:' + t,
+        cacheKey: forceFresh ? null : ('financeiro:listar:' + t),
+        cacheTtlMs: forceFresh ? 0 : 4000
+      })
+        .then(function(res) {
+          if (!res) throw new Error('Resposta vazia ao listar financeiro.');
+          if (res.sucesso === false) throw new Error(res.erro || 'Falha ao listar financeiro.');
+
+          pagamentos.value =
+            (Array.isArray(res.registros) && res.registros) ||
+            (res.dados && Array.isArray(res.dados.registros) && res.dados.registros) ||
+            [];
+        })
+        .catch(function(err) {
+          if (!handleSessionInvalid(err)) console.error('[refreshFinanceiro] erro:', err);
+          throw err;
+        });
+    }
+
+    function refreshBillingInfo(token, silent) {
+      const t = token || sessionToken.value;
+      if (!t) return Promise.resolve();
+      return gasClient.api(
+        { modulo: 'billing', acao: 'assinatura.status', token: t, api_version: 'v2', dados: {} },
+        { retries: 0, silent: !!silent, dedupeKey: 'billing:status:' + t, cacheKey: 'billing:status:' + t, cacheTtlMs: 4000 }
+      ).then(function(res) {
+        if (!res) throw new Error('Resposta vazia ao consultar billing.');
+        if (res.sucesso === false) {
+          const err = new Error(res.erro || 'Falha ao consultar billing.');
+          err.code = res.codigo || 'business_error';
+          throw err;
+        }
+        billingInfo.value = (res.dados || res);
+        if (billingInfo.value && billingInfo.value.plano) {
+          user.value.plano = billingInfo.value.plano;
+          configPlanoSaas.value = billingInfo.value.plano;
+        }
+      }).catch(function(err) {
+        if (!handleSessionInvalid(err)) console.error('[refreshBillingInfo] erro:', err);
+        throw err;
+      });
+    }
+
+    function refreshAdminConsole() {
+      const t = sessionToken.value;
+      if (!t) return Promise.resolve();
+      if (!canAccessPage('admin')) return refreshBillingInfo(t, true);
+      return Promise.allSettled([
+        gasClient.api({ modulo: 'admin', acao: 'tenant.obter', token: t, api_version: 'v2', dados: {} }, { retries: 0, silent: true }),
+        gasClient.api({ modulo: 'admin', acao: 'usuarios.listar', token: t, api_version: 'v2', dados: {} }, { retries: 0, silent: true }),
+        gasClient.api({ modulo: 'billing', acao: 'assinatura.status', token: t, api_version: 'v2', dados: {} }, { retries: 0, silent: true })
+      ]).then(function(results) {
+        const tRes = results[0].status === 'fulfilled' ? results[0].value : null;
+        const uRes = results[1].status === 'fulfilled' ? results[1].value : null;
+        const bRes = results[2].status === 'fulfilled' ? results[2].value : null;
+
+        if (tRes && tRes.sucesso) adminTenant.value = (tRes.dados && tRes.dados.tenant) || tRes.tenant || {};
+        if (uRes && uRes.sucesso) adminUsers.value = (uRes.dados && uRes.dados.usuarios) || uRes.usuarios || [];
+        if (bRes && bRes.sucesso) {
+          billingInfo.value = (bRes.dados || bRes);
+          if (billingInfo.value && billingInfo.value.plano) {
+            configPlanoSaas.value = billingInfo.value.plano;
+            user.value.plano = billingInfo.value.plano;
+          }
+        }
+      }).catch(function(err) {
+        console.error('[refreshAdminConsole]', err);
+      });
+    }
+
+    function salvarPlanoSaas() {
+      if (!sessionToken.value) {
+        notify('Faça login para alterar o plano.', 'info');
+        return;
+      }
+      loading.value = true;
+      apiCall('billing', 'assinatura.alterarPlano', { plano: configPlanoSaas.value }, { retries: 0, timeoutMs: 20000 })
+        .then(function(res) {
+          if (!res || res.sucesso === false) {
+            const err = new Error((res && res.erro) || 'Falha ao alterar plano.');
+            err.code = (res && res.codigo) || 'business_error';
+            throw err;
+          }
+          gasClient.invalidateCacheByPrefix('dashboard:kpis:');
+          return Promise.allSettled([
+            refreshAdminConsole(),
+            refreshDashboard(sessionToken.value, true)
+          ]);
+        })
+        .then(function() {
+          notify('Plano atualizado com sucesso.', 'success');
+        })
+        .catch(function(err) {
+          if (err && err.code === 'forbidden') {
+            notify('[Regra de negócio] Perfil sem permissão para alterar plano.', 'error');
+            return;
+          }
+          showOperationalError(err, 'alterar plano');
+        })
+        .finally(function() {
+          loading.value = false;
+        });
+    }
+
+    function applyTheme(theme) {
+      const next = theme === 'light' ? 'light' : 'dark';
+      currentTheme.value = next;
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('sae_theme', next); } catch (err) {}
+    }
+
+    function toggleTheme() {
+      applyTheme(currentTheme.value === 'dark' ? 'light' : 'dark');
+      notify('Tema ' + (currentTheme.value === 'dark' ? 'escuro' : 'claro') + ' ativado.', 'info');
+    }
+
+    function submitAuth() {
+      if (authMode.value === 'login') return doLogin();
+      if (authMode.value === 'signup') return doSignup();
+      if (authMode.value === 'forgot') return requestPasswordReset();
+      return confirmPasswordReset();
+    }
+
+    async function requestPasswordReset() {
+      if (!resetEmail.value) {
+        loginError.value = 'Informe seu e-mail para recuperar a senha.';
+        return;
+      }
+      loading.value = true;
+      loginError.value = '';
+      try {
+        const res = await apiCall('auth', 'solicitarReset', { email: resetEmail.value }, { retries: 0, timeoutMs: 20000, public: true });
+        if (!res || !res.sucesso) {
+          loginError.value = (res && res.erro) || 'Não foi possível enviar o código de recuperação.';
+          return;
+        }
+        notify((res && res.dados && res.dados.mensagem) || 'Instruções enviadas por e-mail.', 'success');
+        authMode.value = 'reset';
+      } catch (err) {
+        loginError.value = (err && err.message) || 'Erro ao solicitar recuperação de senha.';
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    async function confirmPasswordReset() {
+      if (!resetToken.value || !resetPass.value || !resetPassConfirm.value) {
+        loginError.value = 'Preencha código, nova senha e confirmação.';
+        return;
+      }
+      if (resetPass.value !== resetPassConfirm.value) {
+        loginError.value = 'A confirmação da senha não confere.';
+        return;
+      }
+      loading.value = true;
+      loginError.value = '';
+      try {
+        const res = await apiCall('auth', 'redefinirSenha', { token: resetToken.value, novaSenha: resetPass.value }, { retries: 0, timeoutMs: 20000, public: true });
+        if (!res || !res.sucesso) {
+          loginError.value = (res && res.erro) || 'Não foi possível redefinir a senha.';
+          return;
+        }
+        notify((res && res.dados && res.dados.mensagem) || 'Senha redefinida com sucesso.', 'success');
+        resetPass.value = '';
+        resetPassConfirm.value = '';
+        resetToken.value = '';
+        authMode.value = 'login';
+      } catch (err) {
+        loginError.value = (err && err.message) || 'Erro ao redefinir senha.';
+      } finally {
+        loading.value = false;
+      }
+    }
+
     /* AUTH */
-    function doLogin() {
+    async function doLogin() {
       if (!loginEmail.value || !loginPass.value) {
         loginError.value = 'Preencha todos os campos'; return;
       }
+
       loading.value = true;
-      // Simula chamada google.script.run.autenticarConsultor()
-      setTimeout(() => {
-        loading.value = false;
-        authenticated.value = true;
+      loginError.value = '';
+      showSetupAction.value = false;
+
+      try {
+        const res = await gasClient.call('autenticarConsultor', { email: loginEmail.value, senha: loginPass.value }, { retries: 1, timeoutMs: 20000 });
+        if (!res || !res.sucesso) {
+          const erroMsg = (res && res.erro) || 'Falha ao autenticar. Verifique seus dados.';
+          showSetupAction.value = /Aba obrigatória não encontrada|setupSpreadsheet/i.test(erroMsg);
+          setAuthState('error', erroMsg);
+          return;
+        }
+
+        sessionToken.value = res.token || '';
+        try { sessionStorage.setItem('sae_token', sessionToken.value); } catch (err) {}
+        try { localStorage.setItem('sae_token', sessionToken.value); } catch (err) {}
+        if (res.consultor) {
+          authContext.value = {
+            tenant_id: res.consultor.tenant_id || '',
+            perfil: res.consultor.perfil || 'viewer'
+          };
+          user.value = {
+            nome: res.consultor.nome || user.value.nome,
+            email: res.consultor.email || loginEmail.value,
+            plano: res.consultor.plano || user.value.plano,
+            initials: (res.consultor.nome || 'A').split(' ').map(n => n[0]).slice(0,2).join('').toUpperCase()
+          };
+        }
+
+        setAuthState('authenticated');
+        await carregarDadosIniciais();
+
+        const authCheck = await apiCall('auth', 'verificar', {}, { token: sessionToken.value, retries: 0, timeoutMs: 15000, silent: true, public: true });
+        if (!authCheck || authCheck.sucesso === false || !authCheck.consultor_id) {
+          throw new Error((authCheck && authCheck.erro) || 'Sessão inválida');
+        }
+
+        await refreshAdminConsole();
+        if (billingInfo.value && billingInfo.value.plano) {
+          user.value.plano = billingInfo.value.plano;
+          configPlanoSaas.value = billingInfo.value.plano;
+        }
+        console.log('[doLogin] token recebido:', !!sessionToken.value);
+        console.log('[doLogin] clientes carregados:', clientes.value.length);
+        console.log('[doLogin] tarefas carregadas:', tarefas.value.length);
+        console.log('[doLogin] diagnosticos carregados:', diagnosticos.value.length);
+        console.log('[doLogin] pagamentos carregados:', pagamentos.value.length);
         setTimeout(initCharts, 300);
-      }, 1200);
+      } catch (err) {
+        const msg = (err && err.message) || String(err) || 'Erro ao conectar com backend GAS.';
+        showSetupAction.value = /setupSpreadsheet|Aba obrigatória/i.test(msg);
+        setAuthState('error', msg);
+      } finally {
+        loading.value = false;
+      }
     }
 
-    function demoLogin() {
-      loginEmail.value = 'apollo@demo.com';
-      loginPass.value = 'demo123';
-      doLogin();
+    async function doSignup() {
+      if (!signupNome.value || !signupEmail.value || !signupPass.value) {
+        loginError.value = 'Preencha nome, e-mail e senha para criar conta.';
+        return;
+      }
+      loading.value = true;
+      loginError.value = '';
+      try {
+        const res = await apiCall('auth', 'cadastro', {
+          nome: signupNome.value,
+          email: signupEmail.value,
+          senha: signupPass.value
+        }, { retries: 0, timeoutMs: 20000, public: true });
+
+        if (!res || !res.sucesso) {
+          loginError.value = (res && res.erro) || 'Falha no cadastro.';
+          return;
+        }
+
+        sessionToken.value = res.token || '';
+        try { sessionStorage.setItem('sae_token', sessionToken.value); } catch (err) {}
+        try { localStorage.setItem('sae_token', sessionToken.value); } catch (err) {}
+        authContext.value = {
+          tenant_id: (res.consultor && res.consultor.tenant_id) || '',
+          perfil: (res.consultor && res.consultor.perfil) || 'owner'
+        };
+        user.value = {
+          nome: (res.consultor && res.consultor.nome) || signupNome.value,
+          email: (res.consultor && res.consultor.email) || signupEmail.value,
+          plano: (res.consultor && res.consultor.plano) || 'Pro',
+          initials: ((res.consultor && res.consultor.nome) || signupNome.value).split(' ').map(function(n){ return n[0]; }).slice(0,2).join('').toUpperCase()
+        };
+
+        setAuthState('authenticated');
+        await carregarDadosIniciais();
+
+        const authCheck = await apiCall('auth', 'verificar', {}, { token: sessionToken.value, retries: 0, timeoutMs: 15000, silent: true, public: true });
+        if (!authCheck || authCheck.sucesso === false || !authCheck.consultor_id) {
+          throw new Error((authCheck && authCheck.erro) || 'Sessão inválida');
+        }
+
+        await refreshAdminConsole();
+        if (billingInfo.value && billingInfo.value.plano) {
+          user.value.plano = billingInfo.value.plano;
+          configPlanoSaas.value = billingInfo.value.plano;
+        }
+        setTimeout(initCharts, 300);
+      } catch (err) {
+        loginError.value = (err && err.message) || 'Erro ao cadastrar conta.';
+      } finally {
+        loading.value = false;
+      }
     }
 
     function doLogout() {
-      authenticated.value = false;
+      sessionInvalidHandled.value = false;
+      try { sessionStorage.removeItem('sae_token');
+          localStorage.removeItem('sae_token'); } catch (err) {}
+      try { localStorage.removeItem('sae_token'); } catch (err) {}
+      sessionToken.value = '';
+      clientes.value = [];
+      tarefas.value = [];
+      diagnosticos.value = [];
+      pagamentos.value = [];
+      authContext.value = { tenant_id: '', perfil: 'viewer' };
+      adminTenant.value = {};
+      adminUsers.value = [];
+      billingInfo.value = { status: 'active', plano: 'Pro', limites: { max_usuarios: 0, max_clientes: 0 } };
+      configPlanoSaas.value = 'Pro';
+      setAuthState('unauthenticated');
       loginEmail.value = ''; loginPass.value = '';
     }
 
     /* MODAIS */
     function openModal(name, data = null) {
       modal.value = name;
-      if (name === 'verTarefa' && data) tarefaSelecionada.value = data;
-      if (name === 'novaTarefa' && data?.status) formTarefa.value.status = data.status;
+      if (name === 'verTarefa' && data) {
+        tarefaSelecionada.value = {
+          ...data,
+          status: normalizeTaskStatus(data.status),
+          cliente_id: normalizeIdSafe(data.cliente_id),
+          prazo_iso: String(data.prazo_iso || '').slice(0, 10)
+        };
+      }
+      if (name === 'novoCliente' && !data) {
+        form.value = { empresa_nome:'', segmento:'Tecnologia', status:'active', responsavel:'', mensalidade:'', obs:'' };
+      }
+      if (name === 'novaTarefa') {
+        formTarefa.value = {
+          descricao: '',
+          responsavel: '',
+          prazo_iso: '',
+          onde: '',
+          porque: '',
+          como: '',
+          custo: '',
+          indicador: '',
+          cliente_id:
+            normalizeIdSafe(filtroCliente.value) ||
+            normalizeIdSafe(clienteSelecionado.value && clienteSelecionado.value.uuid) ||
+            '',
+          status: (data && data.status) ? normalizeTaskStatus(data.status) : 'iniciar',
+          tipo: 'Processo'
+        };
+      }
     }
     function closeModal() {
       modal.value = null;
@@ -1739,53 +2892,197 @@ createApp({
     }
 
     /* CRUD */
-    function salvarCliente() {
+    function editarCliente(cliente) {
+      if (!cliente) return;
+      form.value = {
+        uuid: cliente.uuid,
+        empresa_nome: cliente.empresa_nome || '',
+        segmento: cliente.segmento || 'Tecnologia',
+        status: cliente.status || 'active',
+        responsavel: cliente.responsavel || '',
+        mensalidade: cliente.mensalidade || '',
+        obs: cliente.obs || '',
+        email_contato: cliente.email_contato || '',
+        telefone: cliente.telefone || ''
+      };
+      openModal('novoCliente');
+    }
+
+    function inativarCliente(cliente) {
+      if (!cliente || !cliente.uuid) return;
+      if (!confirm('Deseja inativar este cliente?')) return;
       loading.value = true;
-      // Em produção: google.script.run.salvarCliente(form.value)
-      setTimeout(() => {
-        const novo = {
-          uuid: 'c-' + Date.now(),
-          ...form.value,
-          maturidade: 10,
-          tarefas_abertas: 0
-        };
-        clientes.value.push(novo);
-        form.value = { empresa_nome:'', segmento:'Tecnologia', status:'active', responsavel:'', mensalidade:'', obs:'' };
-        loading.value = false;
-        closeModal();
-      }, 600);
+      apiCall('clientes', 'salvar', { uuid: cliente.uuid, status: 'inactive' }, { retries: 0 })
+        .then(function(res) {
+          if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao inativar cliente');
+          gasClient.invalidateCacheByPrefix('clientes:listar:');
+          gasClient.invalidateCacheByPrefix('dashboard:kpis:');
+          return Promise.all([
+            refreshClientes(sessionToken.value, true, true),
+            refreshDashboard(sessionToken.value, true)
+          ]);
+        })
+        .then(function(){ notify('Cliente inativado com sucesso.', 'success'); })
+        .catch(function(err){
+          if (!handleSessionInvalid(err)) showOperationalError(err, 'inativar cliente');
+        })
+        .finally(function(){ loading.value = false; });
+    }
+
+    function salvarCliente() {
+      const isUpdate = !!form.value.uuid;
+      loading.value = true;
+      apiCall('clientes', 'salvar', form.value, { retries: 0 })
+        .then(function(res) {
+          if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao salvar cliente');
+          gasClient.invalidateCacheByPrefix('clientes:listar:');
+          gasClient.invalidateCacheByPrefix('dashboard:kpis:');
+          form.value = { empresa_nome:'', segmento:'Tecnologia', status:'active', responsavel:'', mensalidade:'', obs:'' };
+          closeModal();
+          return Promise.all([
+            refreshClientes(sessionToken.value, true, true),
+            refreshDashboard(sessionToken.value, true)
+          ]);
+        })
+        .then(function(){ notify(isUpdate ? 'Cliente atualizado com sucesso.' : 'Cliente salvo com sucesso.', 'success'); })
+        .catch(function(err){ if (!handleSessionInvalid(err)) showOperationalError(err, isUpdate ? 'atualizar cliente' : 'salvar cliente'); })
+        .finally(function(){ loading.value = false; });
     }
 
     function salvarTarefa() {
+      if (!normalizeIdSafe(formTarefa.value.cliente_id)) {
+        notify('Selecione um cliente para salvar a tarefa.', 'error');
+        return;
+      }
+      formTarefa.value.status = normalizeTaskStatus(formTarefa.value.status);
+      formTarefa.value.cliente_id = normalizeIdSafe(formTarefa.value.cliente_id);
+
       loading.value = true;
-      setTimeout(() => {
-        const nova = { uuid: 't-' + Date.now(), ...formTarefa.value };
-        tarefas.value.push(nova);
-        formTarefa.value = { descricao:'', responsavel:'', prazo_iso:'', onde:'', porque:'', como:'', custo:'', indicador:'', cliente_id:'', status:'iniciar', tipo:'Processo' };
-        loading.value = false;
-        closeModal();
-      }, 500);
+      apiCall('tarefas', 'salvar', formTarefa.value, { retries: 0 })
+        .then(function(res){
+          if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao salvar tarefa');
+
+          const tarefaLocal = {
+            ...formTarefa.value,
+            uuid: res.uuid || formTarefa.value.uuid || ('tmp_' + Date.now()),
+            status: normalizeTaskStatus(formTarefa.value.status),
+            cliente_id: normalizeIdSafe(formTarefa.value.cliente_id)
+          };
+          tarefas.value = [tarefaLocal].concat(tarefas.value.filter(function(t){ return t.uuid !== tarefaLocal.uuid; }));
+
+          formTarefa.value = { descricao:'', responsavel:'', prazo_iso:'', onde:'', porque:'', como:'', custo:'', indicador:'', cliente_id:'', status:'iniciar', tipo:'Processo' };
+          closeModal();
+          gasClient.invalidateCacheByPrefix('tarefas:listar:');
+          gasClient.invalidateCacheByPrefix('dashboard:kpis:');
+          return refreshTarefas(sessionToken.value, true, true)
+            .then(function(){ return refreshDashboard(sessionToken.value, true); })
+            .then(function(){ return []; })
+            .catch(function(err){ return [{ status: 'rejected', reason: err }]; });
+        })
+        .then(function(results){
+          const falhas = (results || []).filter(function(r){ return r.status === 'rejected'; });
+          if (falhas.length) {
+            notify('Tarefa salva, mas houve atraso na atualização. Tente novamente em instantes.', 'info');
+            return;
+          }
+          notify('Tarefa salva com sucesso.', 'success');
+        })
+        .catch(function(err){ showOperationalError(err, 'salvar tarefa'); })
+        .finally(function(){ loading.value = false; });
     }
 
     function atualizarTarefa() {
+      if (!tarefaSelecionada.value) return;
       loading.value = true;
-      setTimeout(() => { loading.value = false; closeModal(); }, 400);
+      apiCall('tarefas', 'salvar', tarefaSelecionada.value, { retries: 0 })
+        .then(function(res){
+          if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao atualizar tarefa');
+
+          const tarefaLocal = {
+            ...tarefaSelecionada.value,
+            status: normalizeTaskStatus(tarefaSelecionada.value.status),
+            cliente_id: normalizeIdSafe(tarefaSelecionada.value.cliente_id)
+          };
+          tarefas.value = tarefas.value.map(function(t){ return t.uuid === tarefaLocal.uuid ? tarefaLocal : t; });
+
+          closeModal();
+          gasClient.invalidateCacheByPrefix('tarefas:listar:');
+          gasClient.invalidateCacheByPrefix('dashboard:kpis:');
+          return refreshTarefas(sessionToken.value, true, true)
+            .then(function(){ return refreshDashboard(sessionToken.value, true); })
+            .then(function(){ return []; })
+            .catch(function(err){ return [{ status: 'rejected', reason: err }]; });
+        })
+        .then(function(results){
+          const falhas = (results || []).filter(function(r){ return r.status === 'rejected'; });
+          if (falhas.length) {
+            notify('Tarefa atualizada, mas houve atraso na atualização da lista.', 'info');
+            return;
+          }
+          notify('Tarefa atualizada com sucesso.', 'success');
+        })
+        .catch(function(err){ showOperationalError(err, 'atualizar tarefa'); })
+        .finally(function(){ loading.value = false; });
     }
 
     function excluirTarefa(t) {
-      tarefas.value = tarefas.value.filter(x => x.uuid !== t.uuid);
-      closeModal();
+      if (!t || !t.uuid) return;
+      loading.value = true;
+      apiCall('tarefas', 'salvar', { uuid: t.uuid, status: 'deleted' }, { retries: 0 })
+        .then(function(res){
+          if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao excluir tarefa');
+
+          tarefas.value = tarefas.value.filter(function(item){ return item.uuid !== t.uuid; });
+          closeModal();
+          gasClient.invalidateCacheByPrefix('tarefas:listar:');
+          gasClient.invalidateCacheByPrefix('dashboard:kpis:');
+          return refreshTarefas(sessionToken.value, true, true)
+            .then(function(){ return refreshDashboard(sessionToken.value, true); })
+            .then(function(){ return []; })
+            .catch(function(err){ return [{ status: 'rejected', reason: err }]; });
+        })
+        .then(function(results){
+          const falhas = (results || []).filter(function(r){ return r.status === 'rejected'; });
+          if (falhas.length) {
+            notify('Tarefa removida, mas houve atraso na atualização da lista.', 'info');
+            return;
+          }
+          notify('Tarefa removida com sucesso.', 'success');
+        })
+        .catch(function(err){ showOperationalError(err, 'excluir tarefa'); })
+        .finally(function(){ loading.value = false; });
     }
 
     function salvarDiagnostico() {
+      const clienteDiagId =
+        normalizeIdSafe(formDiag.value.cliente_id) ||
+        normalizeIdSafe(clienteSelecionado.value && clienteSelecionado.value.uuid) ||
+        normalizeIdSafe(filtroCliente.value) ||
+        normalizeIdSafe(clientes.value[0] && clientes.value[0].uuid);
+      if (!clienteDiagId) {
+        notify('Selecione um cliente para salvar o diagnóstico.', 'error');
+        return;
+      }
+      formDiag.value.cliente_id = clienteDiagId;
+
       loading.value = true;
-      setTimeout(() => {
-        const score = Math.round(questionario5S.value.reduce((a, q) => a + (q.resposta || 0), 0) / (questionario5S.value.length * 5) * 100);
-        alert(`Score calculado: ${score}% · Diagnóstico salvo no Google Sheets`);
-        loading.value = false;
-        diagTab.value = 'resultados';
-        setTimeout(initCharts, 200);
-      }, 800);
+      const respostas = {};
+      questionario5S.value.forEach(function(q, i){ respostas['q' + (i+1)] = Number(q.resposta || 0); });
+      apiCall('diagnosticos', 'salvar', { cliente_id: clienteDiagId, tipo_matriz: formDiag.value.tipo, respostas: respostas }, { retries: 0 })
+        .then(function(res){
+          if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao salvar diagnóstico');
+          gasClient.invalidateCacheByPrefix('diagnosticos:listar:');
+          gasClient.invalidateCacheByPrefix('dashboard:kpis:');
+          closeModal();
+          diagTab.value = 'resultados';
+          return Promise.all([
+            refreshDiagnosticos(sessionToken.value, true, true),
+            refreshDashboard(sessionToken.value, true)
+          ]);
+        })
+        .then(function(){ setTimeout(initCharts, 200); notify('Diagnóstico salvo com sucesso.', 'success'); })
+        .catch(function(err){ showOperationalError(err, 'salvar diagnóstico'); })
+        .finally(function(){ loading.value = false; });
     }
 
     function criarDiagnostico() {
@@ -1794,15 +3091,40 @@ createApp({
     }
 
     function marcarPago(p) {
-      p.pago = true;
+      if (!p || !p.uuid) return;
+      loading.value = true;
+      apiCall('financeiro', 'registrar', { uuid: p.uuid, metodo: 'manual' }, { retries: 0 })
+        .then(function(res){
+          if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao confirmar pagamento');
+          gasClient.invalidateCacheByPrefix('financeiro:listar:');
+          gasClient.invalidateCacheByPrefix('dashboard:kpis:');
+          return Promise.all([
+            refreshFinanceiro(sessionToken.value, true, true),
+            refreshDashboard(sessionToken.value, true)
+          ]);
+        })
+        .then(function(){ notify('Pagamento confirmado com sucesso.', 'success'); })
+        .catch(function(err){ showOperationalError(err, 'confirmar pagamento'); })
+        .finally(function(){ loading.value = false; });
     }
 
     /* PORTAL */
     function gerarLinkPortal() {
-      if (!portalClienteId.value) return;
-      const c = clientes.value.find(x => x.uuid === portalClienteId.value);
-      clienteSelecionado.value = c;
-      linkPortal.value = `https://script.google.com/macros/s/AKfycb.../exec?token=${btoa(portalClienteId.value)}&consultor=${user.value.email}`;
+      if (!portalClienteId.value) {
+        notify('Selecione um cliente para gerar o link do portal.', 'info');
+        return;
+      }
+      const c = clientes.value.find(function(x){ return x.uuid === portalClienteId.value; });
+      clienteSelecionado.value = c || null;
+      loading.value = true;
+      apiCall('portal', 'link', { cliente_id: portalClienteId.value }, { retries: 0 })
+        .then(function(res) {
+          if (!res || !res.sucesso || !res.url) throw new Error((res && res.erro) || 'Falha ao gerar link do portal');
+          linkPortal.value = res.url;
+          notify('Link do portal gerado com sucesso.', 'success');
+        })
+        .catch(function(err){ showOperationalError(err, 'gerar link do portal'); })
+        .finally(function(){ loading.value = false; });
     }
 
     function verPreviewPortal() {
@@ -1812,37 +3134,121 @@ createApp({
       showPortalPreview.value = !showPortalPreview.value;
     }
 
+    function triggerPdfDownload(base64, fileName) {
+      try {
+        const bytes = atob(base64 || '');
+        const len = bytes.length;
+        const arr = new Uint8Array(len);
+        for (let i = 0; i < len; i++) arr[i] = bytes.charCodeAt(i);
+        const blob = new Blob([arr], { type: 'application/pdf' });
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = fileName || ('relatorio_' + new Date().getTime() + '.pdf');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(function(){ URL.revokeObjectURL(objectUrl); }, 1500);
+        return true;
+      } catch (err) {
+        return false;
+      }
+    }
+
+    function sanitizeReportHtml(html) {
+      const raw = String(html || '');
+      const semScript = raw
+        .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+        .replace(/\son\w+\s*=\s*(['\"]).*?\1/gi, '')
+        .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
+        .replace(/javascript:/gi, '');
+      return semScript;
+    }
+
     function gerarRelatorio() {
+      if (!clienteSelecionado.value || !clienteSelecionado.value.uuid) {
+        notify('Selecione um cliente para gerar o relatório.', 'info');
+        return;
+      }
       loading.value = true;
-      // Em produção: google.script.run.gerarRelatorioPDF(clienteSelecionado.value.uuid)
-      setTimeout(() => {
-        loading.value = false;
-        alert('Relatório PDF gerado via Google Apps Script HtmlService!\n\nEm produção, o arquivo seria disponibilizado para download automático.');
-      }, 1500);
+      apiCall('relatorios', 'gerar', { cliente_id: clienteSelecionado.value.uuid, tipo: 'executivo' }, { retries: 0 })
+        .then(function(res){
+          if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao gerar relatório');
+          const arquivoB64 = res.base64 || res.base64_pdf;
+          if (arquivoB64) {
+            const ok = triggerPdfDownload(arquivoB64, res.nomeArquivo || res.file_name || 'relatorio_sae.pdf');
+            if (ok) {
+              notify('Relatório baixado com sucesso.', 'success');
+            }
+          } else if (res.html) {
+            var win = window.open('', '_blank');
+            if (win) {
+              win.document.write(sanitizeReportHtml(res.html));
+              win.document.close();
+              notify('Relatório HTML aberto em nova aba.', 'info');
+            } else {
+              notifyModal('Pop-up bloqueado', 'Permita pop-ups para este domínio para concluir o download do relatório.');
+            }
+          }
+        })
+        .catch(function(err){ showOperationalError(err, 'gerar relatório'); })
+        .finally(function(){ loading.value = false; });
     }
 
     function gerarRelatorioTipo(r) {
+      if (!clienteSelecionado.value || !clienteSelecionado.value.uuid) {
+        notify('Selecione um cliente para gerar relatório.', 'info');
+        return;
+      }
       loading.value = true;
-      setTimeout(() => {
-        loading.value = false;
-        alert(`Relatório "${r.nome}" gerado!\n\nEm produção: google.script.run.gerarPDF("${r.id}", consultor_id)`);
-      }, 1200);
+      apiCall('relatorios', 'gerar', { cliente_id: clienteSelecionado.value.uuid, tipo: r.id }, { retries: 0 })
+        .then(function(res){
+          if (!res || !res.sucesso) throw new Error((res && res.erro) || 'Falha ao gerar relatório ' + r.nome);
+          const arquivoB64 = res.base64 || res.base64_pdf;
+          if (arquivoB64) {
+            triggerPdfDownload(arquivoB64, res.nomeArquivo || res.file_name || ('relatorio_' + r.id + '.pdf'));
+          } else if (res.html) {
+            var win = window.open('', '_blank');
+            if (win) {
+              win.document.write(sanitizeReportHtml(res.html));
+              win.document.close();
+            }
+          }
+          notify('Relatório "' + r.nome + '" gerado com sucesso.', 'success');
+        })
+        .catch(function(err){ showOperationalError(err, 'gerar relatório ' + (r && r.nome ? r.nome : '')); })
+        .finally(function(){ loading.value = false; });
     }
 
-    function runSetup() {
+    async function runSetup() {
       loading.value = true;
-      // Em produção: google.script.run.setupSpreadsheet()
-      setTimeout(() => {
+      try {
+        const res = await apiCall('setup', 'executar', {}, { retries: 0, timeoutMs: 30000 });
+        if (!res || !res.sucesso) {
+          const err = new Error((res && res.erro) || 'Falha ao executar setup.');
+          err.code = (res && res.codigo) || 'business_error';
+          showOperationalError(err, 'executar setup');
+          return;
+        }
+        showSetupAction.value = false;
+        setAuthState('unauthenticated', 'Setup concluído. Faça login para continuar.');
+      } catch (err) {
+        notify('Erro ao executar setup: ' + ((err && err.message) || err), 'error');
+      } finally {
         loading.value = false;
-        alert('Setup executado!\n\nAbas criadas no Google Sheets:\n• consultores\n• clientes\n• diagnosticos\n• tarefas_5w2h\n• financeiro');
-      }, 1500);
+      }
     }
 
     /* HELPERS */
     function formatDate(iso) {
       if (!iso) return '—';
-      const d = new Date(iso + 'T00:00:00');
-      return d.toLocaleDateString('pt-BR');
+      const texto = String(iso).trim();
+      let d = new Date(texto);
+      if (Number.isNaN(d.getTime()) && /^\d{4}-\d{2}-\d{2}$/.test(texto)) {
+        d = new Date(texto + 'T00:00:00');
+      }
+      if (Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
     }
 
     function isOverdue(iso) {
@@ -1863,25 +3269,91 @@ createApp({
       ];
     }
 
-    onMounted(() => {
-      // Em produção, verificar sessão com:
-      // google.script.run.withSuccessHandler(onAuthCheck).verificarSessao()
+    onMounted(async () => {
+      try {
+        const savedTheme = localStorage.getItem('sae_theme');
+        applyTheme(savedTheme || 'dark');
+      } catch (err) {
+        applyTheme('dark');
+      }
+
+      try {
+        const params = new URLSearchParams(window.location.search || '');
+        const modeParam = params.get('mode');
+        const tokenParam = params.get('token');
+        if (modeParam === 'reset') {
+          authMode.value = 'reset';
+          if (tokenParam) resetToken.value = tokenParam;
+        }
+      } catch (err) {}
+
+      setAuthState('booting');
+
+      if (!hasGasRuntime()) {
+        setAuthState('error', 'Ambiente local detectado. Abra o sistema pelo Web App do Google Apps Script.');
+        return;
+      }
+
+      try {
+        const res = await apiCall('setup', 'validarSchema', {}, { retries: 0, public: true, silent: true });
+        if (!res || !res.sucesso || !res.dados || !res.dados.ok) {
+          showSetupAction.value = true;
+          const detalhes = (res && res.dados && res.dados.detalhes && res.dados.detalhes.length) ? ' Pendências: ' + res.dados.detalhes.map(function(d){ return d.aba + ' (' + d.status + ')'; }).join(', ') : '';
+          setAuthState('error', 'Estrutura de banco incompleta. Execute setupSpreadsheet().' + detalhes);
+          return;
+        }
+      } catch (err) {
+        setAuthState('error', 'Não foi possível validar schema: ' + ((err && err.message) || err));
+        return;
+      }
+
+      try {
+        const savedToken = sessionStorage.getItem('sae_token') || localStorage.getItem('sae_token');
+        if (savedToken) {
+          sessionToken.value = savedToken;
+          const authRes = await apiCall('auth', 'verificar', {}, { token: savedToken, retries: 0, timeoutMs: 15000, public: true, silent: true });
+          if (authRes && authRes.sucesso && authRes.consultor_id) {
+            authContext.value = { tenant_id: authRes.tenant_id || '', perfil: authRes.perfil || 'viewer' };
+            await refreshAdminConsole();
+            if (billingInfo.value && billingInfo.value.plano) {
+              user.value.plano = billingInfo.value.plano;
+              configPlanoSaas.value = billingInfo.value.plano;
+            }
+            setAuthState('authenticated');
+            await carregarDadosIniciais();
+            setTimeout(initCharts, 300);
+            return;
+          }
+          sessionStorage.removeItem('sae_token');
+          localStorage.removeItem('sae_token');
+        }
+      } catch (err) {
+        console.error('[boot auth restore]', err);
+      }
+
+      setAuthState('unauthenticated');
     });
 
     return {
-      loading, authenticated, loginEmail, loginPass, loginError,
+      loading, appState, authenticated, showSetupAction, authMode, sessionToken,
+      loginEmail, loginPass, signupNome, signupEmail, signupPass, loginError,
+      resetEmail, resetToken, resetPass, resetPassConfirm,
+      currentTheme, authPrimaryButtonLabel,
       currentPage, pageTitle, modal, busca, diagTab, filtroCliente,
-      portalClienteId, linkPortal, showPortalPreview, tarefaSelecionada,
-      user, clientes, tarefas, form, formTarefa, formDiag,
+      portalClienteId, linkPortal, showPortalPreview, tarefaSelecionada, toasts, systemModal,
+      user, authContext, adminTenant, adminUsers, billingInfo, allowedFeatures, enterpriseBanner, clientes, tarefas, form, formTarefa, formDiag,
+      configPlanoSaas,
       clienteSelecionado, clientesFiltrados, kpis, diagnosticos,
       questionario5S, kanbanColunas, tarefasPorStatus, tarefasDoCliente,
       financeiro, pagamentos, metasCliente, tiposRelatorio, sheetsConfig,
-      navigate, selectCliente, doLogin, demoLogin, doLogout,
+      navigate, canAccessPage, refreshAdminConsole, selectCliente, doLogin, doSignup, doLogout,
+      submitAuth, requestPasswordReset, confirmPasswordReset, toggleTheme,
       openModal, closeModal,
-      salvarCliente, salvarTarefa, atualizarTarefa, excluirTarefa,
+      salvarCliente, editarCliente, inativarCliente, salvarTarefa, atualizarTarefa, excluirTarefa,
+      salvarPlanoSaas,
       salvarDiagnostico, criarDiagnostico, marcarPago,
       gerarLinkPortal, verPreviewPortal, gerarRelatorio,
-      gerarRelatorioTipo, runSetup,
+      gerarRelatorioTipo, runSetup, notifyModal, closeSystemModal,
       formatDate, isOverdue, campos5W2H
     };
   }
