@@ -31,6 +31,7 @@
 
 const SPREADSHEET_ID = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '';
 const SECRET_SALT    = PropertiesService.getScriptProperties().getProperty('SECRET_SALT') || 'sae_apollo_2026_salt';
+const SUPER_ADMIN_EMAIL = PropertiesService.getScriptProperties().getProperty('SUPER_ADMIN_EMAIL') || '';
 
 
 const SCHEMA_VERSION = '2.0.0';
@@ -192,6 +193,28 @@ function isMaintenanceModeEnabled() {
   const raw = PropertiesService.getScriptProperties().getProperty(SECURITY_FLAGS.maintenanceModeKey);
   if (raw === null || raw === undefined || raw === '') return false;
   return ['1', 'true', 'TRUE', 'on', 'ON', 'yes', 'YES'].includes(String(raw).trim());
+}
+
+function isMaintenanceMode() {
+  return isMaintenanceModeEnabled();
+}
+
+function definirSuperAdminEmail(email) {
+  const normalizado = String(email || '').trim().toLowerCase();
+  if (!normalizado || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizado)) {
+    throw new Error('Email de super admin inválido.');
+  }
+  PropertiesService.getScriptProperties().setProperty('SUPER_ADMIN_EMAIL', normalizado);
+  return { sucesso: true, super_admin_email: normalizado };
+}
+
+function validarBootstrapAdminOrThrow(opts) {
+  const options = opts || {};
+  const informedKey = String(options.bootstrapKey || options.bootstrap_key || '').trim();
+  const expectedKey = String(PropertiesService.getScriptProperties().getProperty('ADMIN_BOOTSTRAP_KEY') || '').trim();
+  if (isMaintenanceMode()) return;
+  if (expectedKey && informedKey && informedKey === expectedKey) return;
+  throw new Error('Bootstrap de super admin bloqueado. Defina MAINTENANCE_MODE=true ou informe bootstrapKey válido.');
 }
 
 function isPrivilegedToken(token) {
@@ -2741,61 +2764,74 @@ function adminConvitesAlertas(token, opts = {}) {
   });
 }
 
-function bootstrapSuperAdmin(dados = {}) {
-  const maintenance = isMaintenanceMode();
-  const expectedKey = String(PropertiesService.getScriptProperties().getProperty('ADMIN_BOOTSTRAP_KEY') || '').trim();
-  const providedKey = String(dados.bootstrap_key || '').trim();
-  if (!maintenance) {
-    if (!expectedKey || providedKey !== expectedKey) {
-      return falhaCodigo('bootstrap_forbidden', 'Bootstrap de super admin bloqueado. Habilite manutenção ou informe bootstrap_key válido.');
-    }
-  }
+function criarOuPromoverSuperAdmin(email, nome) {
+  const normalizado = String(email || '').trim().toLowerCase();
+  if (!normalizado || !isValidEmail(normalizado)) throw new Error('Email inválido para super admin.');
+  const nomeFinal = String(nome || 'Super Admin').trim() || 'Super Admin';
 
-  const nome = String(dados.nome || '').trim();
-  const email = String(dados.email || '').trim().toLowerCase();
-  const senha = String(dados.senha || '').trim();
-  if (!nome || !email || !senha) return falhaCodigo('validation_error', 'Nome, e-mail e senha são obrigatórios.');
-  if (!isValidEmail(email)) return falhaCodigo('validation_error', 'E-mail inválido.');
-  if (senha.length < 8) return falhaCodigo('validation_error', 'Senha deve ter no mínimo 8 caracteres.');
-
-  let consultor = getConsultorByEmail(email);
+  let consultor = getConsultorByEmail(normalizado);
   if (!consultor) {
-    const cadastro = cadastrarConsultor({ nome, email, senha }, { allow_internal: true });
-    if (!cadastro || cadastro.sucesso === false) return cadastro || falhaCodigo('bootstrap_failed', 'Falha ao criar super admin.');
-    consultor = cadastro.consultor || getConsultorByEmail(email);
+    const senhaBootstrap = (gerarRequestId() + gerarUUID()).slice(0, 16);
+    const cadastro = cadastrarConsultor({ nome: nomeFinal, email: normalizado, senha: senhaBootstrap }, { allow_internal: true });
+    if (!cadastro || cadastro.sucesso === false) throw new Error((cadastro && cadastro.erro) || 'Falha ao criar usuário para bootstrap.');
+    consultor = cadastro.consultor || getConsultorByEmail(normalizado);
   }
-  if (!consultor || !consultor.uuid) return falhaCodigo('bootstrap_failed', 'Não foi possível localizar o usuário admin.');
+  if (!consultor || !consultor.uuid) throw new Error('Não foi possível localizar o usuário de bootstrap.');
 
-  const tenantId = normalizeIdSafe(dados.tenant_id) || garantirTenantParaConsultor(consultor.uuid, nome, 'Enterprise');
+  const tenantId = garantirTenantParaConsultor(consultor.uuid, nomeFinal, 'Enterprise');
   const sheetInfo = getSheetOrFail('consultores');
-  if (sheetInfo.error) return sheetInfo.error;
+  if (sheetInfo.error) throw new Error(sheetInfo.error.erro || 'Aba consultores indisponível.');
   const linha = encontrarLinha(sheetInfo.sheet, consultor.uuid);
-  if (!linha) return falhaCodigo('bootstrap_failed', 'Registro do usuário admin não encontrado.');
+  if (!linha) throw new Error('Registro do usuário admin não encontrado.');
+
   const headers = linha.headers || [];
   const idxTenant = headers.indexOf('tenant_id');
   const idxPerfil = headers.indexOf('perfil');
   const idxAtivo = headers.indexOf('ativo');
+  const idxPlano = headers.indexOf('plano_saas');
+  const idxCfg = headers.indexOf('configuracoes_json');
   if (idxTenant >= 0) sheetInfo.sheet.getRange(linha.row, idxTenant + 1).setValue(tenantId);
   if (idxPerfil >= 0) sheetInfo.sheet.getRange(linha.row, idxPerfil + 1).setValue('super_admin');
   if (idxAtivo >= 0) sheetInfo.sheet.getRange(linha.row, idxAtivo + 1).setValue(true);
+  if (idxPlano >= 0) sheetInfo.sheet.getRange(linha.row, idxPlano + 1).setValue('Enterprise');
+  if (idxCfg >= 0) {
+    let cfg = {};
+    try { cfg = linha.obj && linha.obj.configuracoes_json ? JSON.parse(linha.obj.configuracoes_json) : {}; } catch (e) {}
+    cfg.role = 'super_admin';
+    cfg.admin_bootstrapped_at = new Date().toISOString();
+    cfg.admin_bootstrap_mode = 'manual_script';
+    sheetInfo.sheet.getRange(linha.row, idxCfg + 1).setValue(JSON.stringify(cfg));
+  }
+  return { consultor_id: consultor.uuid, tenant_id: tenantId, email: normalizado, role: 'super_admin' };
+}
 
-  registrarAuditoria({
-    modulo: 'admin',
-    acao: 'bootstrap.super_admin',
-    sucesso: true,
-    codigo: 'bootstrap_super_admin_ok',
-    mensagem: 'Super admin bootstrap concluído.',
-    tenant_id: tenantId,
-    consultor_id: consultor.uuid,
-    perfil: 'super_admin',
-    payload: { email_hash: hashEmail(email) }
-  });
-  return sucesso({
-    consultor_id: consultor.uuid,
-    tenant_id: tenantId,
-    perfil: 'super_admin',
-    admin_access_v1: adminAccessV1Enabled()
-  });
+function bootstrapSuperAdmin(opts = {}) {
+  try {
+    validarBootstrapAdminOrThrow(opts);
+    const email = String((opts && opts.email) || SUPER_ADMIN_EMAIL || '').trim().toLowerCase();
+    if (!email) throw new Error('SUPER_ADMIN_EMAIL não configurado. Execute definirSuperAdminEmail(email) primeiro.');
+    const resultado = criarOuPromoverSuperAdmin(email, (opts && opts.nome) || 'Super Admin');
+    registrarAuditoria({
+      modulo: 'admin',
+      acao: 'bootstrap.super_admin',
+      sucesso: true,
+      codigo: 'bootstrap_super_admin_ok',
+      mensagem: 'Super admin bootstrap concluído.',
+      tenant_id: resultado.tenant_id,
+      consultor_id: resultado.consultor_id,
+      perfil: 'super_admin',
+      payload: { email_hash: hashEmail(email) }
+    });
+    return sucesso({
+      consultor_id: resultado.consultor_id,
+      tenant_id: resultado.tenant_id,
+      perfil: 'super_admin',
+      admin_access_v1: adminAccessV1Enabled(),
+      super_admin_email: email
+    });
+  } catch (err) {
+    return falhaCodigo('bootstrap_forbidden', String(err && err.message || err));
+  }
 }
 
 function billingAssinaturaObterFromTenantId(tenantId) {

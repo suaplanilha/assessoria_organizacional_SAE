@@ -57,6 +57,11 @@ Implementação da fundação técnica para A1+A2+B1+B2, com foco em não regres
 ## Runbook D0 — Admin inicial fora do sistema
 - [x] Endpoint técnico de bootstrap (`setup.bootstrapSuperAdmin`) implementado com proteção:
   - chave `ADMIN_BOOTSTRAP_KEY` **ou** `MAINTENANCE_MODE=true`.
+- [x] Funções operacionais de bootstrap adicionadas:
+  - `definirSuperAdminEmail(email)`
+  - `isMaintenanceMode()`
+  - `validarBootstrapAdminOrThrow(opts)`
+  - `criarOuPromoverSuperAdmin(email, nome)`
 - [ ] Execução assistida em homologação e depois produção — pendente de operação.
 
 ## Próxima iteração recomendada
