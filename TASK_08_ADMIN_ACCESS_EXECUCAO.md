@@ -28,9 +28,9 @@ Implementação da fundação técnica para A1+A2+B1+B2, com foco em não regres
 
 ## Status operacional
 - [x] Fundação backend iniciada e integrada no gateway API.
-- [ ] Admin UI de pendências (B3) — pendente.
+- [x] Admin UI de pendências (B3) — entregue (fila + filtro + aprovar/rejeitar).
 - [ ] Testes de homologação e rollout piloto — pendente (runtime GAS/UI).
-- [ ] Alertas operacionais (D3) — pendente.
+- [x] Alertas operacionais (D3) — endpoint de alertas operacionais de convites e log `WARN` para picos.
 
 ## Próxima iteração recomendada
 1. Entregar tela Admin de convites (fila + decisão + filtros).

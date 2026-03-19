@@ -1473,6 +1473,47 @@ tr:last-child td { border-bottom: none; }
               </table>
             </div>
           </div>
+
+          <div class="card" style="margin-top:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+              <div class="card-title">📨 Fila de Convites</div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <select class="form-select" style="min-width:170px;" v-model="adminInviteStatus" @change="refreshAdminConsole">
+                  <option value="pending">Pendentes</option>
+                  <option value="approved">Aprovados</option>
+                  <option value="rejected">Rejeitados</option>
+                  <option value="">Todos</option>
+                </select>
+                <button class="btn btn-ghost btn-sm" @click="refreshAdminConsole">Atualizar</button>
+              </div>
+            </div>
+
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">
+              Janela {{ adminInviteAlert.janela_horas || 24 }}h · pendentes: {{ adminInviteAlert.pending || 0 }} · rejeição: {{ adminInviteAlert.rejection_rate || 0 }}%
+              <span v-if="adminInviteAlert.alerta" style="color:var(--rose);font-weight:700;"> · alerta operacional ativo</span>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Nome</th><th>Email</th><th>Status</th><th>Perfil</th><th>Criado em</th><th>Ações</th></tr></thead>
+                <tbody>
+                  <tr v-for="inv in adminInvites" :key="inv.invite_id">
+                    <td>{{ inv.nome || '—' }}</td>
+                    <td>{{ inv.email || '—' }}</td>
+                    <td><span class="status-badge" :class="'status-' + (inv.status || 'pending')">{{ inv.status || 'pending' }}</span></td>
+                    <td>{{ inv.perfil_sugerido || 'viewer' }}</td>
+                    <td>{{ inv.created_at || '—' }}</td>
+                    <td style="display:flex;gap:6px;flex-wrap:wrap;">
+                      <button class="btn btn-success btn-sm" v-if="inv.status==='pending'" @click="aprovarConvite(inv)">Aprovar</button>
+                      <button class="btn btn-danger btn-sm" v-if="inv.status==='pending'" @click="rejeitarConvite(inv)">Rejeitar</button>
+                      <span v-if="inv.status!=='pending'" style="font-size:11px;color:var(--text-muted);">Processado</span>
+                    </td>
+                  </tr>
+                  <tr v-if="!adminInvites.length"><td colspan="6" style="text-align:center;color:var(--text-muted);">Nenhum convite encontrado para o filtro atual.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
 
       </div><!-- .content -->
@@ -1730,6 +1771,10 @@ createApp({
     const authContext = ref({ tenant_id: '', perfil: 'viewer' });
     const adminTenant = ref({});
     const adminUsers = ref([]);
+    const adminInvites = ref([]);
+    const adminInviteStatus = ref('pending');
+    const adminInviteLoading = ref(false);
+    const adminInviteAlert = ref({ alerta: false, rejection_rate: 0, pending: 0, total: 0, janela_horas: 24 });
     const billingInfo = ref({ status: 'active', plano: 'Pro', limites: { max_usuarios: 0, max_clientes: 0 } });
     const onboardingInfo = ref({ steps: [], done: 0, total: 0, percent: 0 });
     const configPlanoSaas = ref('Pro');
@@ -2737,14 +2782,19 @@ createApp({
       const t = sessionToken.value;
       if (!t) return Promise.resolve();
       if (!canAccessPage('admin')) return refreshBillingInfo(t, true);
+      adminInviteLoading.value = true;
       return Promise.allSettled([
         gasClient.api({ modulo: 'admin', acao: 'tenant.obter', token: t, api_version: 'v2', dados: {} }, { retries: 0, silent: true }),
         gasClient.api({ modulo: 'admin', acao: 'usuarios.listar', token: t, api_version: 'v2', dados: {} }, { retries: 0, silent: true }),
-        gasClient.api({ modulo: 'billing', acao: 'assinatura.status', token: t, api_version: 'v2', dados: {} }, { retries: 0, silent: true })
+        gasClient.api({ modulo: 'billing', acao: 'assinatura.status', token: t, api_version: 'v2', dados: {} }, { retries: 0, silent: true }),
+        gasClient.api({ modulo: 'admin', acao: 'convites.listar', token: t, api_version: 'v2', dados: { status: adminInviteStatus.value || '' } }, { retries: 0, silent: true }),
+        gasClient.api({ modulo: 'admin', acao: 'convites.alertas', token: t, api_version: 'v2', dados: { horas: 24 } }, { retries: 0, silent: true })
       ]).then(function(results) {
         const tRes = results[0].status === 'fulfilled' ? results[0].value : null;
         const uRes = results[1].status === 'fulfilled' ? results[1].value : null;
         const bRes = results[2].status === 'fulfilled' ? results[2].value : null;
+        const iRes = results[3].status === 'fulfilled' ? results[3].value : null;
+        const aRes = results[4].status === 'fulfilled' ? results[4].value : null;
 
         if (tRes && tRes.sucesso) adminTenant.value = (tRes.dados && tRes.dados.tenant) || tRes.tenant || {};
         if (uRes && uRes.sucesso) adminUsers.value = (uRes.dados && uRes.dados.usuarios) || uRes.usuarios || [];
@@ -2755,9 +2805,55 @@ createApp({
             user.value.plano = billingInfo.value.plano;
           }
         }
+        if (iRes && iRes.sucesso) adminInvites.value = (iRes.dados && iRes.dados.convites) || iRes.convites || [];
+        if (aRes && aRes.sucesso) adminInviteAlert.value = Object.assign({}, adminInviteAlert.value, aRes.dados || aRes);
       }).catch(function(err) {
         console.error('[refreshAdminConsole]', err);
+      }).finally(function() {
+        adminInviteLoading.value = false;
       });
+    }
+
+    function aprovarConvite(invite) {
+      const t = sessionToken.value;
+      if (!t || !invite || !invite.invite_id) return;
+      adminInviteLoading.value = true;
+      apiCall('admin', 'convites.aprovar', {
+        invite_id: invite.invite_id,
+        perfil: invite.perfil_sugerido || 'viewer'
+      }, { token: t, retries: 0, timeoutMs: 30000, silent: true })
+        .then(function(res) {
+          if (!res || res.sucesso === false) throw new Error((res && res.erro) || 'Falha ao aprovar convite.');
+          notify('Convite aprovado com sucesso.', 'success', 'admin:convite:aprovado');
+          return refreshAdminConsole();
+        })
+        .catch(function(err) {
+          showOperationalError(err, 'aprovar convite');
+        })
+        .finally(function() {
+          adminInviteLoading.value = false;
+        });
+    }
+
+    function rejeitarConvite(invite) {
+      const t = sessionToken.value;
+      if (!t || !invite || !invite.invite_id) return;
+      adminInviteLoading.value = true;
+      apiCall('admin', 'convites.rejeitar', {
+        invite_id: invite.invite_id,
+        motivo: 'Rejeitado via painel admin'
+      }, { token: t, retries: 0, timeoutMs: 30000, silent: true })
+        .then(function(res) {
+          if (!res || res.sucesso === false) throw new Error((res && res.erro) || 'Falha ao rejeitar convite.');
+          notify('Convite rejeitado com sucesso.', 'info', 'admin:convite:rejeitado');
+          return refreshAdminConsole();
+        })
+        .catch(function(err) {
+          showOperationalError(err, 'rejeitar convite');
+        })
+        .finally(function() {
+          adminInviteLoading.value = false;
+        });
     }
 
     function salvarPlanoSaas() {
@@ -3488,12 +3584,12 @@ createApp({
       currentTheme, authPrimaryButtonLabel,
       currentPage, pageTitle, modal, busca, diagTab, filtroCliente,
       portalClienteId, linkPortal, showPortalPreview, tarefaSelecionada, toasts, systemModal,
-      user, authContext, adminTenant, adminUsers, billingInfo, allowedFeatures, enterpriseBanner, clientes, tarefas, form, formTarefa, formDiag,
+      user, authContext, adminTenant, adminUsers, adminInvites, adminInviteStatus, adminInviteLoading, adminInviteAlert, billingInfo, allowedFeatures, enterpriseBanner, clientes, tarefas, form, formTarefa, formDiag,
       configPlanoSaas,
       clienteSelecionado, clientesFiltrados, kpis, diagnosticos,
       questionario5S, kanbanColunas, tarefasPorStatus, tarefasDoCliente,
       financeiro, pagamentos, metasCliente, tiposRelatorio, sheetsConfig,
-      navigate, canAccessPage, refreshAdminConsole, selectCliente, doLogin, doSignup, doLogout,
+      navigate, canAccessPage, refreshAdminConsole, aprovarConvite, rejeitarConvite, selectCliente, doLogin, doSignup, doLogout,
       submitAuth, requestPasswordReset, confirmPasswordReset, toggleTheme,
       openModal, closeModal,
       salvarCliente, editarCliente, inativarCliente, salvarTarefa, atualizarTarefa, excluirTarefa,

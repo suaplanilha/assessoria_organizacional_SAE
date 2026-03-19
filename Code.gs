@@ -100,6 +100,7 @@ const RBAC_PERMISSOES_PADRAO = {
     'admin.convites.listar',
     'admin.convites.aprovar',
     'admin.convites.rejeitar',
+    'admin.convites.alertas',
     'billing.assinatura.obter',
     'billing.assinatura.status'
   ],
@@ -2701,6 +2702,45 @@ function adminDecidirConvite(token, dados = {}, decisao) {
   });
 }
 
+function adminConvitesAlertas(token, opts = {}) {
+  if (!adminAccessV1Enabled()) return falhaCodigo('feature_disabled', 'Fluxo de convites desabilitado por feature flag.');
+  const contexto = obterContextoSessao(token);
+  if (!contexto || !contexto.consultor_id) return falhaCodigo('session_invalid', 'Sessão inválida');
+  const role = normalizeAdminRole(contexto.perfil);
+  if (role !== 'super_admin' && role !== 'admin_tenant') return falhaCodigo('forbidden', 'Acesso negado para alertas.');
+
+  const sheetInfo = getSheetOrFail('tb_invites');
+  if (sheetInfo.error) return sheetInfo.error;
+  const horas = Math.max(1, Math.min(168, toNumberSafe(opts.horas, 24)));
+  const cutoff = Date.now() - (horas * 60 * 60 * 1000);
+  const rows = sheetParaObjetos(sheetInfo.sheet, {}).filter(function(row) {
+    if (role === 'admin_tenant' && normalizeIdSafe(row.tenant_id) !== normalizeIdSafe(contexto.tenant_id)) return false;
+    const created = Date.parse(row.created_at || '');
+    return Number.isFinite(created) ? created >= cutoff : true;
+  });
+  const total = rows.length;
+  const rejected = rows.filter(function(r) { return String(r.status || '').toLowerCase() === 'rejected'; }).length;
+  const pending = rows.filter(function(r) { return String(r.status || '').toLowerCase() === 'pending'; }).length;
+  const rejectionRate = total > 0 ? Number(((rejected / total) * 100).toFixed(2)) : 0;
+  const alerta = rejectionRate >= 40 || pending >= 20;
+  if (alerta) {
+    logEstruturado('admin.invites.alerta', {
+      tenant_id: contexto.tenant_id,
+      rejection_rate: rejectionRate,
+      pending: pending,
+      janela_horas: horas
+    }, 'WARN');
+  }
+  return sucesso({
+    janela_horas: horas,
+    total: total,
+    pending: pending,
+    rejected: rejected,
+    rejection_rate: rejectionRate,
+    alerta: alerta
+  });
+}
+
 function billingAssinaturaObterFromTenantId(tenantId) {
   const tid = normalizeIdSafe(tenantId);
   if (!tid) return null;
@@ -2952,6 +2992,7 @@ function api(params) {
       'convites.listar': () => adminListarConvites(token, dadosReq || {}),
       'convites.aprovar': () => adminDecidirConvite(token, dadosReq || {}, 'approved'),
       'convites.rejeitar': () => adminDecidirConvite(token, dadosReq || {}, 'rejected'),
+      'convites.alertas': () => adminConvitesAlertas(token, dadosReq || {}),
       'piloto.status': () => adminPilotoStatus(token),
       'piloto.inscrever': () => adminPilotoInscrever(token),
       'piloto.remover': () => adminPilotoRemover(token),
