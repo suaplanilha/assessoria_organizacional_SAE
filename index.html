@@ -226,6 +226,7 @@ body {
 .btn-danger { background: rgba(244,63,94,0.15); color: var(--rose); border: 1px solid rgba(244,63,94,0.3); }
 .btn-success { background: rgba(16,185,129,0.15); color: var(--emerald); border: 1px solid rgba(16,185,129,0.3); }
 .btn-sm { padding: 5px 10px; font-size: 11px; }
+.action-short-label { display: inline-flex; }
 
 .content {
   flex: 1; overflow-y: auto; padding: 24px;
@@ -618,6 +619,7 @@ tr:last-child td { border-bottom: none; }
   .kanban-board { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 768px) {
+  .action-short-label { display: none; }
   :root { --sidebar-w: 0px; }
   .sidebar { display: none; }
   .kpi-grid { grid-template-columns: 1fr 1fr; }
@@ -1019,11 +1021,11 @@ tr:last-child td { border-bottom: none; }
                     <td><span class="status-badge">{{ c.estado_projeto || 'descoberta' }}</span></td>
                     <td>
                       <div style="display:flex;gap:4px;">
-                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('projetos')" aria-label="Abrir projetos do cliente" title="Abrir projetos do cliente">📋</button>
-                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('diagnostico')" aria-label="Abrir diagnóstico do cliente" title="Abrir diagnóstico do cliente">🔍</button>
-                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('portal')" aria-label="Abrir portal do cliente" title="Abrir portal do cliente">🌐</button>
-                        <button class="btn btn-ghost btn-sm" @click="editarCliente(c)" aria-label="Editar cliente" title="Editar cliente">✏️</button>
-                        <button class="btn btn-ghost btn-sm" @click="inativarCliente(c)" aria-label="Inativar cliente" title="Inativar cliente">⏸️</button>
+                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('projetos')" aria-label="Abrir projetos do cliente" title="Abrir projetos do cliente">📋 <span class="action-short-label">Projetos</span></button>
+                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('diagnostico')" aria-label="Abrir diagnóstico do cliente" title="Abrir diagnóstico do cliente">🔍 <span class="action-short-label">Diagnóstico</span></button>
+                        <button class="btn btn-ghost btn-sm" @click="selectCliente(c); navigate('portal')" aria-label="Abrir portal do cliente" title="Abrir portal do cliente">🌐 <span class="action-short-label">Portal</span></button>
+                        <button class="btn btn-ghost btn-sm" @click="editarCliente(c)" aria-label="Editar cliente" title="Editar cliente">✏️ <span class="action-short-label">Editar</span></button>
+                        <button class="btn btn-ghost btn-sm" @click="inativarCliente(c)" aria-label="Inativar cliente" title="Inativar cliente">⏸️ <span class="action-short-label">Inativar</span></button>
                       </div>
                     </td>
                   </tr>
@@ -1732,6 +1734,8 @@ createApp({
     const onboardingInfo = ref({ steps: [], done: 0, total: 0, percent: 0 });
     const configPlanoSaas = ref('Pro');
     const sessionInvalidHandled = ref(false);
+    const inflightBySequenceKey = new Map();
+    const toastDedupeByKey = new Map();
     let refreshTarefasInFlight = null;
     let refreshTarefasSeq = 0;
     let refreshTarefasDebounceTimer = null;
@@ -2286,8 +2290,44 @@ createApp({
       return p + '_' + Date.now().toString(36) + '_' + rand;
     }
 
-    function validateApiEnvelope(res) {
-      return !!(res && typeof res === 'object' && typeof res.sucesso === 'boolean' && Object.prototype.hasOwnProperty.call(res, 'request_id') && Object.prototype.hasOwnProperty.call(res, 'erro') && Object.prototype.hasOwnProperty.call(res, 'dados'));
+    function normalizeApiEnvelope(raw, meta = {}) {
+      if (raw === null || raw === undefined) {
+        return {
+          status: 'empty',
+          sucesso: false,
+          request_id: '',
+          client_request_id: meta.clientRequestId || '',
+          dados: null,
+          erro: 'Resposta vazia da API.',
+          codigo: 'empty_response'
+        };
+      }
+      if (typeof raw !== 'object') {
+        return {
+          status: 'invalid',
+          sucesso: false,
+          request_id: '',
+          client_request_id: meta.clientRequestId || '',
+          dados: null,
+          erro: 'Contrato de resposta inválido da API.',
+          codigo: 'invalid_envelope'
+        };
+      }
+      const envelope = Object.assign({}, raw);
+      const sucesso = typeof envelope.sucesso === 'boolean' ? envelope.sucesso : false;
+      const dados = Object.prototype.hasOwnProperty.call(envelope, 'dados') ? envelope.dados : null;
+      const erro = Object.prototype.hasOwnProperty.call(envelope, 'erro') ? envelope.erro : (sucesso ? null : 'Falha na API.');
+      const requestId = String(envelope.request_id || '');
+      const clientRequestId = String(envelope.client_request_id || meta.clientRequestId || '');
+      const status = sucesso ? 'ok' : (String(erro || '').toLowerCase().indexOf('vazia') >= 0 ? 'empty' : 'error');
+      return Object.assign({}, envelope, {
+        status: status,
+        sucesso: sucesso,
+        request_id: requestId,
+        client_request_id: clientRequestId,
+        dados: dados,
+        erro: erro
+      });
     }
 
     function runGAS(modulo, acao, dados = {}, options = {}) {
@@ -2299,9 +2339,9 @@ createApp({
       const clientRequestId = options.clientRequestId || options.requestId || generateClientRequestId(modulo + '_' + acao);
       window.__lastClientRequestId = clientRequestId;
       const sequenceKey = String(options.sequenceKey || (modulo + ':' + acao));
-      runGAS.__seqByKey = runGAS.__seqByKey || {};
-      runGAS.__seqByKey[sequenceKey] = (runGAS.__seqByKey[sequenceKey] || 0) + 1;
-      const sequenceId = runGAS.__seqByKey[sequenceKey];
+      const current = inflightBySequenceKey.get(sequenceKey);
+      const sequenceId = (current && current.sequenceId ? current.sequenceId : 0) + 1;
+      inflightBySequenceKey.set(sequenceKey, { sequenceId: sequenceId, clientRequestId: clientRequestId });
       console.log('[runGAS] dispatch', { modulo: modulo, acao: acao, client_request_id: clientRequestId, sequence_key: sequenceKey, sequence_id: sequenceId });
       return gasClient.api(
         { modulo: modulo, acao: acao, token: token, dados: dados, request_id: clientRequestId },
@@ -2314,31 +2354,28 @@ createApp({
           dedupeKey: options.dedupeKey || null
         }
       ).then(function(res) {
-        if (!res) throw new Error('Resposta vazia da API.');
-        if (!validateApiEnvelope(res)) {
-          const envelopeErr = new Error('Contrato de resposta inválido da API.');
-          envelopeErr.code = 'invalid_envelope';
-          envelopeErr.api = res;
-          throw envelopeErr;
+        const normalized = normalizeApiEnvelope(res, { clientRequestId: clientRequestId });
+        const latest = inflightBySequenceKey.get(sequenceKey);
+        if (!latest || latest.sequenceId !== sequenceId) {
+          return { ignored: true, stale: true, modulo: modulo, acao: acao, client_request_id: clientRequestId, request_id: normalized.request_id || '' };
         }
-        if ((runGAS.__seqByKey[sequenceKey] || 0) !== sequenceId) {
-          return { ignored: true, stale: true, modulo: modulo, acao: acao, client_request_id: clientRequestId, request_id: res.request_id || '' };
-        }
-        if (res.sucesso === false) {
-          const err = new Error(res.erro || 'Falha na API.');
-          err.code = res.codigo || 'business_error';
-          err.api = res;
+        if (normalized.sucesso === false) {
+          const err = new Error(normalized.erro || 'Falha na API.');
+          err.code = normalized.codigo || (normalized.status === 'empty' ? 'empty_response' : 'business_error');
+          err.api = normalized;
+          err.meta = { modulo: modulo, acao: acao, sequence_key: sequenceKey, sequence_id: sequenceId, client_request_id: clientRequestId, status: normalized.status };
           throw err;
         }
-        const dadosMerge = (res && res.dados && typeof res.dados === 'object') ? res.dados : {};
-        const merged = Object.assign({}, res, dadosMerge);
-        console.log('[runGAS] result', { modulo: modulo, acao: acao, status: 'ok', client_request_id: clientRequestId, request_id: merged.request_id || '' });
+        const dadosMerge = (normalized && normalized.dados && typeof normalized.dados === 'object') ? normalized.dados : {};
+        const merged = Object.assign({}, normalized, dadosMerge);
+        console.log('[runGAS] result', { modulo: modulo, acao: acao, status: normalized.status || 'ok', client_request_id: clientRequestId, request_id: merged.request_id || '' });
         return merged;
       }).catch(function(err) {
         const msg = String((err && err.message) || '');
         const lower = msg.toLowerCase();
         const status = (lower.indexOf('resposta vazia') >= 0 || (err && err.code === 'invalid_envelope')) ? 'empty' : (lower.indexOf('timeout') >= 0 ? 'timeout' : 'error');
-        console.warn('[runGAS] result', { modulo: modulo, acao: acao, status: status, client_request_id: clientRequestId, request_id: (err && err.api && err.api.request_id) || window.__lastRequestId || '' });
+        err.meta = Object.assign({ modulo: modulo, acao: acao, sequence_key: sequenceKey, sequence_id: sequenceId, client_request_id: clientRequestId, status: status }, err && err.meta ? err.meta : {});
+        console.warn('[runGAS] result', { modulo: modulo, acao: acao, status: status, client_request_id: clientRequestId, request_id: (err && err.api && err.api.request_id) || '' });
         throw err;
       });
     }
@@ -2357,7 +2394,7 @@ createApp({
     }
 
     function getOperationalProtocolId(err) {
-      return (err && err.api && (err.api.request_id || err.api.client_request_id)) || window.__lastRequestId || window.__lastClientRequestId || '';
+      return (err && err.api && (err.api.request_id || err.api.client_request_id)) || (err && err.meta && err.meta.client_request_id) || '';
     }
 
     function showOperationalError(err, ctxLabel) {
@@ -2372,7 +2409,14 @@ createApp({
       return showOperationalError(err, ctxLabel);
     }
 
-    function notify(msg, tipo) {
+    function notify(msg, tipo, dedupeKey) {
+      const key = dedupeKey ? String(dedupeKey) : '';
+      if (key) {
+        const now = Date.now();
+        const lastAt = Number(toastDedupeByKey.get(key) || 0);
+        if (now - lastAt < 4000) return;
+        toastDedupeByKey.set(key, now);
+      }
       const id = String(Date.now()) + '_' + String(Math.random()).slice(2, 8);
       toasts.value.push({ id: id, msg: msg, tipo: tipo || 'info' });
       setTimeout(function() {
@@ -2429,7 +2473,7 @@ createApp({
         const falhaSessao = falhas.find(function(f) { return isSessionInvalidError(f.reason); });
         if (falhaSessao) handleSessionInvalid(falhaSessao.reason);
         if (!falhaSessao) {
-          notify('Alguns dados iniciais atrasaram. Exibindo o conteúdo disponível.', 'info');
+          notify('Alguns dados iniciais atrasaram. Exibindo o conteúdo disponível.', 'info', 'boot:partial');
         }
       }
     }
@@ -2550,7 +2594,7 @@ createApp({
           if (isEmptyPayload) {
             tarefas.value = previousTarefas;
             const rid = getOperationalProtocolId(err) || window.__lastClientRequestId || '';
-            notify('Aviso: resposta temporariamente vazia em tarefas. Mantivemos os dados anteriores.' + (rid ? (' · protocolo: ' + rid) : ''), 'info');
+            notify('Aviso: resposta temporariamente vazia em tarefas. Mantivemos os dados anteriores.' + (rid ? (' · protocolo: ' + rid) : ''), 'info', 'tarefas:empty');
             if (!retryOnEmpty) {
               const sleep = (typeof waitMs === 'function') ? waitMs : function(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); };
               console.log('[refreshTarefas] fallback', { status: 'fallback', modulo: 'tarefas', acao: 'listar', client_request_id: window.__lastClientRequestId || '' });
